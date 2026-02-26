@@ -1,14 +1,18 @@
--- Create table with correct vector dimensions for Google text-embedding-004
+-- Enable pgvector extension
+create extension if not exists vector;
+
+-- Drop and recreate table (embed-english-v3.0 produces 1024-dim vectors)
+drop table if exists documents;
 create table documents (
   id bigserial primary key,
   content text,
   metadata jsonb,
-  embedding vector(768)
+  embedding vector(1024)
 );
 
--- Create the similarity search function with 768 dims for Google
-create function match_documents (
-  query_embedding vector(768),
+-- Similarity search function (recreatable)
+create or replace function match_documents (
+  query_embedding vector(1024),
   match_count int default null,
   filter jsonb default '{}'
 ) returns table (

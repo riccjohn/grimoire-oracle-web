@@ -21,7 +21,11 @@
   "javascript": {
     "formatter": {
       "quoteStyle": "double",
-      "trailingCommas": "es5"
+      "trailingCommas": "es5",
+      "semicolons": "asNeeded"
     }
+  },
+  "files": {
+    "includes": ["**", "!vault/**"]
   }
 }
