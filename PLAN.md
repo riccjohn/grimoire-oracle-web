@@ -9,7 +9,7 @@ This document captures the architectural decisions and implementation plan for G
 | Layer              | Choice                                 |
 | ------------------ | -------------------------------------- |
 | Chat LLM           | Google Gemini (`gemini-2.0-flash`)     |
-| Embeddings         | Google (`text-embedding-004`, 768-dim) |
+| Embeddings         | Google (`gemini-embedding-001`, 3072-dim) |
 | Vector Store       | Supabase pgvector                      |
 | Keyword Search     | Supabase full-text search              |
 | Hybrid Search      | `SupabaseHybridSearch` (SQL function)  |
@@ -22,7 +22,7 @@ This document captures the architectural decisions and implementation plan for G
 
 ### Stack rationale
 
-**Google Gemini** — Both the chat model (`gemini-2.0-flash`) and embeddings (`text-embedding-004`) come from a single Google AI Studio API key, which has a genuinely free tier with no expiry and no credit card required (15 RPM, 1M tokens/day — more than sufficient for a side project). LangChain integration via `@langchain/google-genai`. The embedding model produces 768-dimensional vectors. If you ever want to switch to a paid provider (e.g. Anthropic), it's a two-line swap in `lib/oracle-logic.ts`.
+**Google Gemini** — Both the chat model (`gemini-2.0-flash`) and embeddings (`gemini-embedding-001`) come from a single Google AI Studio API key, which has a genuinely free tier with no expiry and no credit card required (15 RPM, 1M tokens/day — more than sufficient for a side project). LangChain integration via `@langchain/google-genai`. The embedding model produces 3072-dimensional vectors. If you ever want to switch to a paid provider (e.g. Anthropic), it's a two-line swap in `lib/oracle-logic.ts`.
 
 **Supabase** — A single PostgreSQL database handles both semantic search (pgvector) and keyword search (PostgreSQL full-text search). LangChain's `SupabaseHybridSearch` retriever runs both in a single SQL function call, keeping all retrieval logic inside the database rather than in application code.
 
@@ -58,7 +58,7 @@ Next.js API Route  ←─── server-only, env vars protected here
                     │
               scripts/ingest.ts
                     │
-              ├── GoogleGenerativeAIEmbeddings (text-embedding-004)
+              ├── GoogleGenerativeAIEmbeddings (gemini-embedding-001)
               └── vault/ markdown files
 ```
 
@@ -200,7 +200,7 @@ ingest-vault:
      id bigserial primary key,
      content text,
      metadata jsonb,
-     embedding vector(768)    -- 768 dims for Google text-embedding-004
+     embedding vector(3072)    -- 3072 dims for Google gemini-embedding-001
    );
    ```
 4. Create the hybrid search SQL function (see [Supabase LangChain docs](https://supabase.com/docs/guides/ai/langchain))

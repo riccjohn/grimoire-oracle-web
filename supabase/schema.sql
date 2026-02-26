@@ -1,14 +1,15 @@
--- Create table with correct vector dimensions for Google text-embedding-004
+-- Create table with correct vector dimensions for Google gemini-embedding-001
 create table documents (
   id bigserial primary key,
   content text,
   metadata jsonb,
-  embedding vector(768)
+  embedding vector(3072),
+  content_hash text unique
 );
 
--- Create the similarity search function with 768 dims for Google
+-- Create the similarity search function with 3072 dims for Google
 create function match_documents (
-  query_embedding vector(768),
+  query_embedding vector(3072),
   match_count int default null,
   filter jsonb default '{}'
 ) returns table (
