@@ -1,9 +1,9 @@
 import { DirectoryLoader } from "@langchain/classic/document_loaders/fs/directory"
 import { TextLoader } from "@langchain/classic/document_loaders/fs/text"
 import { MarkdownTextSplitter } from "@langchain/classic/text_splitter"
+import { CohereEmbeddings } from "@langchain/cohere"
 import { SupabaseVectorStore } from "@langchain/community/vectorstores/supabase"
 import type { Document } from "@langchain/core/documents"
-import { CohereEmbeddings } from "@langchain/cohere"
 import { supabaseClient } from "./supabase-admin"
 
 const CHUNK_SIZE = 1000
@@ -171,6 +171,11 @@ const createVectorIndex = async (chunks: Chunk[]) => {
   const embeddingModel = new CohereEmbeddings({
     model: "embed-english-v3.0",
   })
+
+  // Delete existing documents to prevent duplicate entries
+  const { error } = await supabaseClient.from("documents").delete().neq("id", 0)
+  if (error) throw new Error(`Failed to clear documents: ${error.message}`)
+  console.log("🗑  Cleared existing documents...")
 
   await SupabaseVectorStore.fromDocuments(chunks, embeddingModel, {
     client: supabaseClient,

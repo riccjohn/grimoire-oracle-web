@@ -7,8 +7,7 @@ create table documents (
   id bigserial primary key,
   content text,
   metadata jsonb,
-  embedding vector(1024),
-  content_hash text unique
+  embedding vector(1024)
 );
 
 -- Similarity search function (recreatable)
