@@ -16,8 +16,8 @@ This document captures the architectural decisions and implementation plan for G
 | UI                 | Next.js 15 App Router                  |
 | Frontend streaming | Vercel AI SDK (`useChat` hook)         |
 | API key protection | Next.js API routes (server-side)       |
-| Deployment         | GitLab CI → Vercel (on push to `main`) |
-| Ingestion trigger  | GitLab CI manual job                   |
+| Deployment         | GitHub Actions → Vercel (on push to `main`) |
+| Ingestion trigger  | GitHub Actions manual workflow              |
 | Hosting            | Vercel                                 |
 
 ### Stack rationale
@@ -32,7 +32,7 @@ This document captures the architectural decisions and implementation plan for G
 
 **Vercel AI SDK (`ai` package)** — Used only on the frontend via the `useChat` React hook. It handles message history state, loading indicators, streaming text rendering, and form wiring — eliminating the manual `useState` + `fetch` + `ReadableStream` boilerplate you'd otherwise write in `app/page.tsx`. On the server side, `LangChainAdapter.toDataStreamResponse()` converts LangChain's output stream into the format `useChat` expects. Critically, the AI SDK's `streamText`/`generateText` functions are **not** used — LangChain stays in charge of the entire RAG pipeline. The AI SDK is purely a transport and UI convenience layer.
 
-**GitLab CI** — Two jobs in a single `.gitlab-ci.yml`: a `deploy` job that fires automatically on push to `main` (via Vercel CLI), and an `ingest-vault` job that only runs when manually triggered. This keeps deployment automated while preventing ingestion from running on every code change.
+**GitHub Actions** — Two workflows in `.github/workflows/`: a `deploy` workflow that fires automatically on push to `main` (via Vercel CLI), and an `ingest.yml` workflow that only runs when manually triggered via `workflow_dispatch`. This keeps deployment automated while preventing ingestion from running on every code change.
 
 ---
 
@@ -56,7 +56,7 @@ Next.js API Route  ←─── server-only, env vars protected here
                     ▲
                     │  populated by:
                     │
-              GitLab CI — ingest-vault (manual trigger)
+              GitHub Actions — ingest-vault (manual trigger)
                     │
               scripts/ingest.ts
                     │
@@ -86,7 +86,8 @@ grimoire-oracle-web/
 ├── scripts/
 │   └── ingest.ts             # Ingestion script → Supabase
 ├── vault/                    # TTRPG markdown files (or git submodule)
-├── .gitlab-ci.yml            # CI/CD with manual ingest job
+├── .github/workflows/
+│   └── ingest.yml            # Manual ingestion trigger (workflow_dispatch)
 ├── .env.local                # Local dev env vars (gitignored)
 ├── .env.example              # Template for required env vars
 ├── package.json
@@ -117,7 +118,7 @@ SUPABASE_SERVICE_ROLE_KEY=   # Write access — bypasses RLS
 
 **Where each variable lives:**
 
-| Variable | `.env.local` | Vercel settings | GitLab CI |
+| Variable | `.env.local` | Vercel settings | GitHub Actions |
 |---|---|---|---|
 | `GOOGLE_API_KEY` | Yes | Yes | No |
 | `COHERE_API_KEY` | Yes | No | Yes (ingest) |
@@ -133,62 +134,46 @@ SUPABASE_SERVICE_ROLE_KEY=   # Write access — bypasses RLS
 
 ---
 
-## GitLab CI/CD
+## GitHub Actions CI/CD
 
-Two jobs live in a single `.gitlab-ci.yml`. They appear as separate pipeline runs in the GitLab UI because they're triggered by different events: `deploy` fires on every push to `main`; `ingest-vault` only fires when you manually click "Run" in the GitLab Pipelines UI.
+One workflow in `.github/workflows/ingest.yml` handles manual ingestion. It only runs when triggered via `workflow_dispatch` (Actions tab → "Ingest vault" → "Run workflow") — never automatically.
 
 ```yaml
-# .gitlab-ci.yml
+# .github/workflows/ingest.yml
+name: Ingest vault
 
-stages:
-  - deploy
-  - ingest
+on:
+  workflow_dispatch:
 
-# Pipeline 1: Deploy chatbot to Vercel on every push to main
-deploy-chatbot:
-  stage: deploy
-  image: node:20
-  rules:
-    - if: $CI_COMMIT_BRANCH == "main"
-  script:
-    - pnpm install --frozen-lockfile
-    - pnpm dlx vercel pull --yes --environment=production --token=$VERCEL_TOKEN
-    - pnpm dlx vercel build --prod --token=$VERCEL_TOKEN
-    - pnpm dlx vercel deploy --prebuilt --prod --token=$VERCEL_TOKEN
-  variables:
-    VERCEL_ORG_ID: $VERCEL_ORG_ID
-    VERCEL_PROJECT_ID: $VERCEL_PROJECT_ID
-
-# Pipeline 2: Rebuild the vector index on demand (never runs automatically)
-ingest-vault:
-  stage: ingest
-  image: node:20
-  when: manual
-  rules:
-    - when: manual
-  script:
-    - pnpm install --frozen-lockfile
-    - pnpm tsx scripts/ingest.ts
-  variables:
-    SUPABASE_URL: $SUPABASE_URL
-    SUPABASE_SERVICE_ROLE_KEY: $SUPABASE_SERVICE_ROLE_KEY
-    COHERE_API_KEY: $COHERE_API_KEY
+jobs:
+  ingest:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: pnpm
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+      - name: Run ingestion pipeline
+        run: pnpm tsx scripts/ingest.ts
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+          COHERE_API_KEY: ${{ secrets.COHERE_API_KEY }}
 ```
 
-### CI/CD variables to configure (Settings → CI/CD → Variables)
+### Secrets to configure (Settings → Secrets and variables → Actions)
 
-| Variable | Used by | Mask? | Protect? |
-|---|---|---|---|
-| `VERCEL_TOKEN` | `deploy-chatbot` | Yes | Yes |
-| `VERCEL_ORG_ID` | `deploy-chatbot` | No | No |
-| `VERCEL_PROJECT_ID` | `deploy-chatbot` | No | No |
-| `SUPABASE_URL` | `ingest-vault` | No | Yes |
-| `SUPABASE_SERVICE_ROLE_KEY` | `ingest-vault` | Yes | Yes |
-| `COHERE_API_KEY` | `ingest-vault` | Yes | Yes |
+| Secret | Notes |
+|---|---|
+| `SUPABASE_URL` | Supabase project REST URL |
+| `SUPABASE_SERVICE_ROLE_KEY` | Bypasses RLS — keep out of Vercel |
+| `COHERE_API_KEY` | Embedding model credentials |
 
-`SUPABASE_SERVICE_ROLE_KEY` bypasses Row Level Security — keep it out of the `deploy-chatbot` job entirely. The deployed Next.js app uses the `SUPABASE_ANON_KEY` (set in Vercel project settings), which is scoped to read-only queries via RLS.
-
-**Note on Vercel + GitLab:** Vercel has a native GitLab integration that can auto-deploy without a CI job — but using the Vercel CLI in GitLab CI gives you more control over environment selection and deployment timing within your pipeline.
+`SUPABASE_SERVICE_ROLE_KEY` bypasses Row Level Security — keep it out of Vercel entirely. The deployed Next.js app uses `SUPABASE_ANON_KEY` (set in Vercel project settings), scoped to read-only queries via RLS.
 
 ---
 
@@ -291,14 +276,11 @@ export default function Page() {
 }
 ```
 
-### Phase 5 — GitLab CI/CD
+### Phase 5 — GitHub Actions CI/CD
 
-- Add `.gitlab-ci.yml` to the repo root with both jobs (`deploy-chatbot` and `ingest-vault`)
-- In Vercel: create a project, link it to the GitLab repo, grab the `VERCEL_TOKEN`, `VERCEL_ORG_ID`, and `VERCEL_PROJECT_ID`
-- Add all CI/CD variables to GitLab (Settings → CI/CD → Variables) per the table in the CI/CD section above
-- Add runtime variables to Vercel project settings (`GOOGLE_API_KEY`, `SUPABASE_URL`, `SUPABASE_ANON_KEY`, LangSmith vars)
-- Push to `main` → confirm `deploy-chatbot` runs automatically
-- Manually trigger `ingest-vault` → confirm ingestion runs and rows appear in Supabase
+- Add `.github/workflows/ingest.yml` with `workflow_dispatch` trigger
+- Add `SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY`, and `COHERE_API_KEY` as repository secrets (Settings → Secrets and variables → Actions)
+- Manually trigger the workflow from the Actions tab → confirm ingestion runs and rows appear in Supabase
 
 ---
 
@@ -361,7 +343,7 @@ pnpm add -D typescript @types/node @types/react tsx
 - [ ] Run `pnpm dev` → open `http://localhost:3000` → ask a rules question → confirm streaming response
 - [ ] Open LangSmith → confirm a trace appeared → inspect the retrieved documents and rephrased query
 - [ ] Open browser DevTools → Network tab → inspect the `/api/chat` request → confirm no API keys in request headers or response body
-- [ ] Push to `main` → confirm `deploy-chatbot` CI job runs automatically and Vercel deployment succeeds
-- [ ] Trigger the `ingest-vault` job manually in GitLab UI → confirm it completes and rows appear in Supabase `documents` table
+- [ ] Push to `main` → confirm Vercel deployment succeeds
+- [ ] Trigger the `Ingest vault` workflow manually in GitHub Actions → confirm it completes and rows appear in Supabase `documents` table
 - [ ] Confirm `SUPABASE_SERVICE_ROLE_KEY` is NOT present in Vercel project environment variables
 - [ ] Visit the production Vercel URL → confirm streaming chat works end-to-end

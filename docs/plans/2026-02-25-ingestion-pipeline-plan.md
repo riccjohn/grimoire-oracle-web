@@ -1,7 +1,7 @@
 # Ingestion Pipeline - Implementation Plan
 
 **Date:** 2026-02-25
-**Status:** Complete — Phase 3 done; ingestion working with Cohere
+**Status:** Complete — all phases done
 **Branch:** ingestion-pipeline
 
 ## Goal
@@ -93,9 +93,9 @@ Complete the ingestion pipeline that reads TTRPG markdown files from `vault/`, s
 5. Trigger manually from the Actions tab and confirm success
 
 **Verification:**
-- [ ] Workflow appears in GitHub Actions tab
-- [ ] Manual trigger completes without error
-- [ ] New rows appear in Supabase after the run
+- [x] Workflow appears in GitHub Actions tab
+- [x] Manual trigger completes without error
+- [x] New rows appear in Supabase after the run
 
 #### Agent Context
 - **Files to create:** `.github/workflows/ingest.yml`
@@ -108,19 +108,16 @@ Complete the ingestion pipeline that reads TTRPG markdown files from `vault/`, s
 
 ### Phase 5: Idempotent Upserts [no-test]
 
-**Goal:** Prevent duplicate rows when `pnpm ingest` is run more than once (e.g., locally then on CI).
+**Goal:** Prevent duplicate rows when `pnpm ingest` is run more than once.
 
-**Approach:** Add a `content_hash` column to the `documents` table. Before upserting, hash each chunk's content + source path. Use Supabase's upsert (conflict on `content_hash`) instead of insert so re-runs update existing rows rather than appending new ones.
+**Approach (implemented):** Delete all existing rows before inserting. Simpler than content-hash upserts and sufficient given vault content rarely changes. The `content_hash` column remains in the schema as a future option for incremental ingestion if needed.
 
-**Tasks:**
-1. Add `content_hash text unique` column to the `documents` table in Supabase dashboard
-2. In `scripts/ingest.ts`, compute a hash (e.g. SHA-256 via Node's `crypto`) of `chunk.pageContent + chunk.metadata.source` for each chunk
-3. Store the hash in `chunk.metadata` so `SupabaseVectorStore` includes it in the row
-4. Configure `SupabaseVectorStore.fromDocuments` to upsert on `content_hash` conflict
+Guards added:
+- Empty chunks check aborts before the delete runs, preventing accidental index wipe
+- Delete error throws before insert proceeds
 
 **Verification:**
-- [ ] Run `pnpm ingest` twice — row count in Supabase stays the same after second run
-- [ ] Modify a vault file, re-run — updated row reflects new content
+- [x] Run `pnpm ingest` twice — row count in Supabase stays the same after second run
 
 #### Agent Context
 - **Files to modify:** `scripts/ingest.ts`
@@ -133,7 +130,7 @@ Complete the ingestion pipeline that reads TTRPG markdown files from `vault/`, s
 
 - **Key separation:** `SUPABASE_SERVICE_ROLE_KEY` (ingest only) vs `SUPABASE_ANON_KEY` (app runtime, slice 2) — never mix
 - **No app code yet:** Nothing in `app/` or `lib/oracle-logic.ts` is part of this slice
-- **Idempotency:** Re-running `pnpm ingest` will insert duplicate rows until Phase 5 is complete
+- **Idempotency:** Re-running `pnpm ingest` clears and re-inserts all rows (delete-then-insert pattern)
 - **Supabase table:** The `documents` table with `embedding vector(1024)` must be created in the Supabase dashboard before Phase 3 can run
 
 ## Out of Scope
