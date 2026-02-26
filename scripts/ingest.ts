@@ -3,7 +3,7 @@ import { TextLoader } from "@langchain/classic/document_loaders/fs/text"
 import { MarkdownTextSplitter } from "@langchain/classic/text_splitter"
 import { SupabaseVectorStore } from "@langchain/community/vectorstores/supabase"
 import type { Document } from "@langchain/core/documents"
-import { GoogleGenerativeAIEmbeddings } from "@langchain/google-genai"
+import { CohereEmbeddings } from "@langchain/cohere"
 import { supabaseClient } from "./supabase-admin"
 
 const CHUNK_SIZE = 1000
@@ -162,23 +162,22 @@ const enrichChunksWithMetadata = (chunks: Chunk[]) => {
 }
 
 /**
- * Converts document chunks into vector embeddings and saves the index to disk.
- * Uses Google's gemini-embedding-001 model for embedding generation.
+ * Converts document chunks into vector embeddings and inserts them into Supabase.
  * @param chunks - Document chunks to vectorize
  */
 const createVectorIndex = async (chunks: Chunk[]) => {
   console.log("🧠 Creating embeddings (this may take a moment)...")
 
-   const embeddings = new GoogleGenerativeAIEmbeddings({
-    model: "gemini-embedding-001",
+  const embeddingModel = new CohereEmbeddings({
+    model: "embed-english-v3.0",
   })
-  
-  await SupabaseVectorStore.fromDocuments(chunks, embeddings, {
+
+  await SupabaseVectorStore.fromDocuments(chunks, embeddingModel, {
     client: supabaseClient,
     tableName: SUPABASE_TABLE_NAME,
   })
 
-  console.log("✅ Index saved to Supabase⚡️")
+  console.log("✅ Index saved to Supabase ⚡️")
 }
 
 main()

@@ -9,7 +9,7 @@ This document captures the architectural decisions and implementation plan for G
 | Layer              | Choice                                 |
 | ------------------ | -------------------------------------- |
 | Chat LLM           | Google Gemini (`gemini-2.0-flash`)     |
-| Embeddings         | Google (`gemini-embedding-001`, 3072-dim) |
+| Embeddings         | Cohere (`embed-english-v3.0`, 1024-dim)  |
 | Vector Store       | Supabase pgvector                      |
 | Keyword Search     | Supabase full-text search              |
 | Hybrid Search      | `SupabaseHybridSearch` (SQL function)  |
@@ -22,7 +22,9 @@ This document captures the architectural decisions and implementation plan for G
 
 ### Stack rationale
 
-**Google Gemini** — Both the chat model (`gemini-2.0-flash`) and embeddings (`gemini-embedding-001`) come from a single Google AI Studio API key, which has a genuinely free tier with no expiry and no credit card required (15 RPM, 1M tokens/day — more than sufficient for a side project). LangChain integration via `@langchain/google-genai`. The embedding model produces 3072-dimensional vectors. If you ever want to switch to a paid provider (e.g. Anthropic), it's a two-line swap in `lib/oracle-logic.ts`.
+**Google Gemini** — The chat model (`gemini-2.0-flash`) uses a Google AI Studio API key, which has a genuinely free tier with no expiry and no credit card required (15 RPM, 1M tokens/day — more than sufficient for a side project). LangChain integration via `@langchain/google-genai`.
+
+**Cohere** — Embeddings use Cohere's `embed-english-v3.0` model (1024-dimensional vectors) via `@langchain/cohere`. The free trial key allows ~1000 API calls/month, each processing up to 96 texts — around 11 calls total for the full vault. This is far more practical than Google's embedding free tier (1000 single calls/day, batch endpoint unsupported). Requires a separate `COHERE_API_KEY`.
 
 **Supabase** — A single PostgreSQL database handles both semantic search (pgvector) and keyword search (PostgreSQL full-text search). LangChain's `SupabaseHybridSearch` retriever runs both in a single SQL function call, keeping all retrieval logic inside the database rather than in application code.
 
@@ -58,7 +60,7 @@ Next.js API Route  ←─── server-only, env vars protected here
                     │
               scripts/ingest.ts
                     │
-              ├── GoogleGenerativeAIEmbeddings (gemini-embedding-001)
+              ├── CohereEmbeddings (embed-english-v3.0)
               └── vault/ markdown files
 ```
 
@@ -99,7 +101,8 @@ grimoire-oracle-web/
 # .env.local (never commit this file)
 
 # Runtime — Next.js app (also set in Vercel project settings)
-GOOGLE_API_KEY=              # Google AI Studio — free tier, covers both LLM and embeddings
+GOOGLE_API_KEY=              # Google AI Studio — chat LLM only (gemini-2.0-flash)
+COHERE_API_KEY=              # Cohere — embeddings only (embed-english-v3.0)
 SUPABASE_URL=                # Found in Supabase project settings
 SUPABASE_ANON_KEY=           # Safe for read queries (RLS enforced)
 
@@ -116,7 +119,8 @@ SUPABASE_SERVICE_ROLE_KEY=   # Write access — bypasses RLS
 
 | Variable | `.env.local` | Vercel settings | GitLab CI |
 |---|---|---|---|
-| `GOOGLE_API_KEY` | Yes | Yes | Yes (ingest) |
+| `GOOGLE_API_KEY` | Yes | Yes | No |
+| `COHERE_API_KEY` | Yes | No | Yes (ingest) |
 | `SUPABASE_URL` | Yes | Yes | No |
 | `SUPABASE_ANON_KEY` | Yes | Yes | No |
 | `LANGCHAIN_TRACING_V2` | Yes | Yes | No |
@@ -168,7 +172,7 @@ ingest-vault:
   variables:
     SUPABASE_URL: $SUPABASE_URL
     SUPABASE_SERVICE_ROLE_KEY: $SUPABASE_SERVICE_ROLE_KEY
-    GOOGLE_API_KEY: $GOOGLE_API_KEY
+    COHERE_API_KEY: $COHERE_API_KEY
 ```
 
 ### CI/CD variables to configure (Settings → CI/CD → Variables)
@@ -180,7 +184,7 @@ ingest-vault:
 | `VERCEL_PROJECT_ID` | `deploy-chatbot` | No | No |
 | `SUPABASE_URL` | `ingest-vault` | No | Yes |
 | `SUPABASE_SERVICE_ROLE_KEY` | `ingest-vault` | Yes | Yes |
-| `GOOGLE_API_KEY` | both jobs | Yes | Yes |
+| `COHERE_API_KEY` | `ingest-vault` | Yes | Yes |
 
 `SUPABASE_SERVICE_ROLE_KEY` bypasses Row Level Security — keep it out of the `deploy-chatbot` job entirely. The deployed Next.js app uses the `SUPABASE_ANON_KEY` (set in Vercel project settings), which is scoped to read-only queries via RLS.
 
@@ -200,14 +204,15 @@ ingest-vault:
      id bigserial primary key,
      content text,
      metadata jsonb,
-     embedding vector(3072)    -- 3072 dims for Google gemini-embedding-001
+     embedding vector(1024),   -- 1024 dims for Cohere embed-english-v3.0
+     content_hash text unique
    );
    ```
 4. Create the hybrid search SQL function (see [Supabase LangChain docs](https://supabase.com/docs/guides/ai/langchain))
 
 ### Phase 2 — Ingestion (`scripts/ingest.ts`)
 
-The ingestion script reads markdown files from `vault/`, chunks and enriches them, embeds each chunk with `GoogleGenerativeAIEmbeddings`, and writes everything to the Supabase `documents` table via `SupabaseVectorStore.fromDocuments()`.
+The ingestion script reads markdown files from `vault/`, chunks and enriches them, embeds each chunk with `CohereEmbeddings`, and writes everything to the Supabase `documents` table via `SupabaseVectorStore.fromDocuments()`.
 
 Key functions to implement:
 - `splitDocsIntoChunks` — load and chunk markdown files
@@ -341,12 +346,12 @@ Vercel provides request logs and basic analytics on the free plan with no config
 ```bash
 pnpm add next react react-dom
 pnpm add ai                          # Vercel AI SDK — useChat hook + LangChainAdapter
-pnpm add @langchain/google-genai @langchain/community @langchain/core @langchain/textsplitters
+pnpm add @langchain/google-genai @langchain/cohere @langchain/community @langchain/core @langchain/textsplitters
 pnpm add @supabase/supabase-js
 pnpm add -D typescript @types/node @types/react tsx
 ```
 
-`@langchain/google-genai` covers both `ChatGoogleGenerativeAI` and `GoogleGenerativeAIEmbeddings` — one package, one API key, no cost. The Supabase vector store comes via `@langchain/community`. `@ai-sdk/google` is deliberately **not** installed: the AI SDK's provider packages are only needed if you use `streamText`/`generateText`, which you're not — LangChain handles all LLM and embedding calls.
+`@langchain/google-genai` covers `ChatGoogleGenerativeAI` for the chat LLM. `@langchain/cohere` provides `CohereEmbeddings` for the embedding pipeline — requires a separate `COHERE_API_KEY`. The Supabase vector store comes via `@langchain/community`. `@ai-sdk/google` is deliberately **not** installed: the AI SDK's provider packages are only needed if you use `streamText`/`generateText`, which you're not — LangChain handles all LLM and embedding calls.
 
 ---
 

@@ -1,15 +1,19 @@
--- Create table with correct vector dimensions for Google gemini-embedding-001
+-- Enable pgvector extension
+create extension if not exists vector;
+
+-- Drop and recreate table (embed-english-v3.0 produces 1024-dim vectors)
+drop table if exists documents;
 create table documents (
   id bigserial primary key,
   content text,
   metadata jsonb,
-  embedding vector(3072),
+  embedding vector(1024),
   content_hash text unique
 );
 
--- Create the similarity search function with 3072 dims for Google
-create function match_documents (
-  query_embedding vector(3072),
+-- Similarity search function (recreatable)
+create or replace function match_documents (
+  query_embedding vector(1024),
   match_count int default null,
   filter jsonb default '{}'
 ) returns table (

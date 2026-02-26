@@ -12,6 +12,7 @@
   },
   "dependencies": {
     "@langchain/classic": "^1.0.20",
+    "@langchain/cohere": "^1.0.3",
     "@langchain/community": "^1.1.19",
     "@langchain/core": "^1.1.28",
     "@langchain/google-genai": "^2.1.20",
