@@ -21,6 +21,12 @@ const main = async () => {
     const chunks = await splitDocsIntoChunks(docs)
     const mergedChunks = mergeSmallChunks(chunks)
     const enrichedChunks = enrichChunksWithMetadata(mergedChunks)
+
+    if (enrichedChunks.length === 0) {
+      console.error("❌ No chunks to ingest — aborting to avoid clearing the index with no replacement data.")
+      throw new Error("Enriched chunks array is empty after processing.")
+    }
+
     await createVectorIndex(enrichedChunks)
   } catch (error) {
     console.error("❌ Ingestion failed:", error)
@@ -42,7 +48,7 @@ const loadDocs = async (docPath: string) => {
 
   const docs = await loader.load()
 
-  console.log(`✅ Loaded ${docs.length} documents:\n`)
+  console.log(`✅ Loaded ${docs.length} documents:`)
 
   return docs
 }
@@ -62,7 +68,7 @@ const splitDocsIntoChunks = async (docs: Chunk[]) => {
   })
 
   const chunks = await splitter.splitDocuments(docs)
-  console.log(`✅ Created ${chunks.length} chunks:\n`)
+  console.log(`✅ Created ${chunks.length} chunks:`)
   return chunks
 }
 
@@ -72,44 +78,45 @@ const splitDocsIntoChunks = async (docs: Chunk[]) => {
  * @param chunks - Array of Document chunks
  * @returns Array with small chunks merged into their neighbors
  */
-const mergeSmallChunks = (chunks: Document<Record<string, unknown>>[]) => {
+const mergeSmallChunks = (chunks: Chunk[]) => {
   console.log("\n🔗 Merging small chunks...")
 
-  const result = chunks.reduce<{
-    merged: Document<Record<string, unknown>>[]
-    skipNext: boolean
-  }>(
-    (acc, current, index) => {
-      if (acc.skipNext) {
-        return { merged: acc.merged, skipNext: false }
-      }
-
-      const next = chunks[index + 1]
-      const shouldMerge =
-        current.pageContent.length < MIN_CHUNK_SIZE &&
-        next &&
-        current.metadata.source === next.metadata.source
-
-      if (shouldMerge) {
-        return {
-          merged: [
-            ...acc.merged,
-            {
-              pageContent: current.pageContent + "\n\n" + next.pageContent,
-              metadata: current.metadata,
-            },
-          ],
-          skipNext: true,
+  const { merged, pending } = chunks.reduce<{ merged: Chunk[]; pending: Chunk | null }>(
+    (acc, current) => {
+      if (acc.pending === null) {
+        if (current.pageContent.length < MIN_CHUNK_SIZE) {
+          return { merged: acc.merged, pending: current }
         }
+        return { merged: [...acc.merged, current], pending: null }
       }
 
-      return { merged: [...acc.merged, current], skipNext: false }
+      const sameSource = acc.pending.metadata.source === current.metadata.source
+
+      if (sameSource) {
+        const combined: Chunk = {
+          pageContent: acc.pending.pageContent + "\n\n" + current.pageContent,
+          metadata: acc.pending.metadata,
+        }
+        if (combined.pageContent.length < MIN_CHUNK_SIZE) {
+          return { merged: acc.merged, pending: combined }
+        }
+        return { merged: [...acc.merged, combined], pending: null }
+      }
+
+      // Different source: flush pending, then handle current
+      const flushed = [...acc.merged, acc.pending]
+      if (current.pageContent.length < MIN_CHUNK_SIZE) {
+        return { merged: flushed, pending: current }
+      }
+      return { merged: [...flushed, current], pending: null }
     },
-    { merged: [], skipNext: false }
+    { merged: [], pending: null }
   )
 
-  console.log(`✅ Merged ${chunks.length} → ${result.merged.length} chunks`)
-  return result.merged
+  const result = pending ? [...merged, pending] : merged
+
+  console.log(`✅ Merged ${chunks.length} → ${result.length} chunks`)
+  return result
 }
 
 /**
@@ -120,7 +127,7 @@ const mergeSmallChunks = (chunks: Document<Record<string, unknown>>[]) => {
  * @returns Title string optimized for embedding similarity
  */
 const extractTitleFromPath = (filepath: string) => {
-  const vaultIndex = filepath.indexOf("vault/")
+  const vaultIndex = filepath.lastIndexOf("vault/")
   const relativePath =
     vaultIndex !== -1 ? filepath.slice(vaultIndex + "vault/".length) : filepath
 
@@ -173,6 +180,7 @@ const createVectorIndex = async (chunks: Chunk[]) => {
   })
 
   // Delete existing documents to prevent duplicate entries
+  // PostgREST requires a filter clause on DELETE; `.neq("id", 0)` is the conventional workaround to delete all rows.
   const { error } = await supabaseClient.from("documents").delete().neq("id", 0)
   if (error) throw new Error(`Failed to clear documents: ${error.message}`)
   console.log("🗑  Cleared existing documents...")
