@@ -23,7 +23,9 @@ const main = async () => {
     const enrichedChunks = enrichChunksWithMetadata(mergedChunks)
 
     if (enrichedChunks.length === 0) {
-      console.error("❌ No chunks to ingest — aborting to avoid clearing the index with no replacement data.")
+      console.error(
+        "❌ No chunks to ingest — aborting to avoid clearing the index with no replacement data."
+      )
       throw new Error("Enriched chunks array is empty after processing.")
     }
 
@@ -81,7 +83,10 @@ const splitDocsIntoChunks = async (docs: Chunk[]) => {
 const mergeSmallChunks = (chunks: Chunk[]) => {
   console.log("\n🔗 Merging small chunks...")
 
-  const { merged, pending } = chunks.reduce<{ merged: Chunk[]; pending: Chunk | null }>(
+  const { merged, pending } = chunks.reduce<{
+    merged: Chunk[]
+    pending: Chunk | null
+  }>(
     (acc, current) => {
       if (acc.pending === null) {
         if (current.pageContent.length < MIN_CHUNK_SIZE) {

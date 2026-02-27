@@ -1,12 +1,12 @@
-'use client'
+"use client"
 
-import * as ScrollArea from '@radix-ui/react-scroll-area'
-import { useEffect, useRef } from 'react'
-import { Message } from './Message'
+import * as ScrollArea from "@radix-ui/react-scroll-area"
+import { useEffect, useRef } from "react"
+import { Message } from "./Message"
 
 type ChatMessage = {
   id: string
-  role: 'user' | 'assistant'
+  role: "user" | "assistant"
   content: string
 }
 
@@ -19,7 +19,7 @@ export function MessageList({ messages, isStreaming = false }: Props) {
   const bottomRef = useRef<HTMLDivElement>(null)
 
   useEffect(() => {
-    bottomRef.current?.scrollIntoView({ behavior: 'smooth' })
+    bottomRef.current?.scrollIntoView({ behavior: "smooth" })
   }, [messages])
 
   return (
@@ -36,7 +36,9 @@ export function MessageList({ messages, isStreaming = false }: Props) {
             role={msg.role}
             content={msg.content}
             isStreaming={
-              isStreaming && i === messages.length - 1 && msg.role === 'assistant'
+              isStreaming &&
+              i === messages.length - 1 &&
+              msg.role === "assistant"
             }
           />
         ))}
