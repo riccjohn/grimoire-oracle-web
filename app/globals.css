@@ -3,34 +3,34 @@
 @custom-variant dark (&:where(.dark, .dark *));
 
 @theme {
-  --color-bg:         #201F26;
-  --color-bg-light:   #2D2C35;
-  --color-bg-subtle:  #3A3943;
-  --color-bg-overlay: #4D4C57;
-  --color-fg:         #DFDBDD;
-  --color-fg-muted:   #858392;
-  --color-fg-dim:     #BFBCC8;
-  --color-fg-subtle:  #605F6B;
-  --color-accent:     #6B50FF;
-  --color-accent-2:   #FF60FF;
-  --color-accent-3:   #68FFD6;
-  --color-error:      #EB4268;
-  --color-info:       #00A4FF;
-  --color-success:    #12C78F;
+  --color-bg: #201f26;
+  --color-bg-light: #2d2c35;
+  --color-bg-subtle: #3a3943;
+  --color-bg-overlay: #4d4c57;
+  --color-fg: #dfdbdd;
+  --color-fg-muted: #858392;
+  --color-fg-dim: #bfbcc8;
+  --color-fg-subtle: #605f6b;
+  --color-accent: #6b50ff;
+  --color-accent-2: #ff60ff;
+  --color-accent-3: #68ffd6;
+  --color-error: #eb4268;
+  --color-info: #00a4ff;
+  --color-success: #12c78f;
   --font-sans: var(--font-geist-sans);
   --font-mono: var(--font-geist-mono);
 }
 
 /* Light theme overrides */
 :root:not(.dark) {
-  --color-bg:         #F5F3F0;
-  --color-bg-light:   #FFFAF1;
-  --color-bg-subtle:  #E8E5E0;
-  --color-bg-overlay: #D8D4CE;
-  --color-fg:         #201F26;
-  --color-fg-muted:   #605F6B;
-  --color-fg-dim:     #858392;
-  --color-fg-subtle:  #3A3943;
+  --color-bg: #f5f3f0;
+  --color-bg-light: #fffaf1;
+  --color-bg-subtle: #e8e5e0;
+  --color-bg-overlay: #d8d4ce;
+  --color-fg: #201f26;
+  --color-fg-muted: #605f6b;
+  --color-fg-dim: #858392;
+  --color-fg-subtle: #3a3943;
 }
 
 body {
