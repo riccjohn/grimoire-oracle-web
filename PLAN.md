@@ -11,8 +11,8 @@ This document captures the architectural decisions and implementation plan for G
 | Chat LLM           | Google Gemini (`gemini-2.0-flash`)     |
 | Embeddings         | Cohere (`embed-english-v3.0`, 1024-dim)  |
 | Vector Store       | Supabase pgvector                      |
-| Keyword Search     | Supabase full-text search              |
-| Hybrid Search      | `SupabaseHybridSearch` (SQL function)  |
+| Retrieval          | `SupabaseVectorStore` (vector search via `match_documents`) |
+| Hybrid Search      | Deferred — add `hybrid_search` RPC if retrieval quality is poor |
 | UI                 | Next.js 15 App Router                  |
 | Frontend streaming | Vercel AI SDK (`useChat` hook)         |
 | API key protection | Next.js API routes (server-side)       |
@@ -26,7 +26,7 @@ This document captures the architectural decisions and implementation plan for G
 
 **Cohere** — Embeddings use Cohere's `embed-english-v3.0` model (1024-dimensional vectors) via `@langchain/cohere`. The free trial key allows ~1000 API calls/month, each processing up to 96 texts — around 11 calls total for the full vault. This is far more practical than Google's embedding free tier (1000 single calls/day, batch endpoint unsupported). Requires a separate `COHERE_API_KEY`.
 
-**Supabase** — A single PostgreSQL database handles both semantic search (pgvector) and keyword search (PostgreSQL full-text search). LangChain's `SupabaseHybridSearch` retriever runs both in a single SQL function call, keeping all retrieval logic inside the database rather than in application code.
+**Supabase** — A single PostgreSQL database handles semantic search via pgvector. `SupabaseVectorStore` from `@langchain/community` runs vector similarity queries against the `match_documents` RPC. Full-text hybrid search is deferred — the `hybrid_search` RPC pattern (RRF combining vector + FTS) can be added to the schema if retrieval quality needs improvement.
 
 **Next.js SSR** — API routes run on the server, so `GOOGLE_API_KEY` and Supabase credentials are never sent to the browser.
 
@@ -47,10 +47,9 @@ Next.js API Route  ←─── server-only, env vars protected here
   │
   ├── ChatGoogleGenerativeAI (gemini-2.0-flash)
   │
-  └── SupabaseHybridSearch retriever
+  └── SupabaseVectorStore retriever
         │
-        ├── pgvector (semantic / cosine similarity)
-        └── PostgreSQL FTS (keyword search)
+        └── pgvector (semantic / cosine similarity)
               │
               └── Supabase (documents table)
                     ▲
@@ -64,9 +63,9 @@ Next.js API Route  ←─── server-only, env vars protected here
               └── vault/ markdown files
 ```
 
-### Hybrid search
+### Retrieval
 
-`SupabaseHybridSearch` runs a single PostgreSQL RPC function that performs both vector similarity search and full-text search inside the database, then returns a merged result. All hybrid logic lives in SQL — fewer round trips, no orchestration in TypeScript.
+`SupabaseVectorStore` queries the `match_documents` RPC for vector similarity search. If retrieval quality is poor (e.g. exact OSE terms like spell names aren't surfacing), the upgrade path is to add a `hybrid_search` RPC to the schema that combines vector + full-text search via Reciprocal Rank Fusion (RRF), then pass `queryName: "hybrid_search"` to the vector store.
 
 ---
 
@@ -82,7 +81,7 @@ grimoire-oracle-web/
 │           └── route.ts      # Streaming API route (server-only)
 ├── lib/
 │   ├── oracle-logic.ts       # RAG pipeline (server-only)
-│   └── supabase.ts           # Supabase client initialization
+│   └── supabase-client.ts    # Supabase client initialization
 ├── scripts/
 │   └── ingest.ts             # Ingestion script → Supabase
 ├── vault/                    # TTRPG markdown files (or git submodule)
@@ -213,7 +212,7 @@ The RAG pipeline uses three LangChain primitives composed together:
 - `createStuffDocumentsChain` — stuffs retrieved documents into the prompt context
 - `createRetrievalChain` — orchestrates the full pipeline end-to-end
 
-The retriever is `SupabaseHybridSearch`, which runs vector and full-text search in a single SQL call.
+The retriever is `SupabaseVectorStore` calling the `match_documents` RPC for vector similarity search.
 
 Mark the module server-only by keeping it in `lib/` and only importing it from API routes — never from client components.
 
@@ -252,25 +251,23 @@ export async function POST(req: Request) {
 Frontend skeleton:
 
 ```typescript
-// app/page.tsx
+// app/page.tsx — AI SDK v6 API
 'use client';
-import { useChat } from 'ai/react';
+import { useChat } from '@ai-sdk/react';
 
 export default function Page() {
-  const { messages, input, handleInputChange, handleSubmit, isLoading } = useChat();
+  // v6 API — old fields (input, handleInputChange, handleSubmit, isLoading) are gone
+  const { messages, sendMessage, status } = useChat({ api: '/api/chat' });
 
   return (
     <div>
       {messages.map((m) => (
         <div key={m.id}>
-          <strong>{m.role === 'user' ? '❯' : '🧙'}</strong> {m.content}
+          <strong>{m.role === 'user' ? '❯' : '🧙'}</strong>{' '}
+          {m.parts[0].type === 'text' ? m.parts[0].text : ''}
         </div>
       ))}
-      {isLoading && <p>Consulting the grimoire...</p>}
-      <form onSubmit={handleSubmit}>
-        <input value={input} onChange={handleInputChange} placeholder="Ask me about OSE rules..." />
-        <button type="submit">Ask</button>
-      </form>
+      {status === 'streaming' && <p>Consulting the grimoire...</p>}
     </div>
   );
 }
@@ -293,7 +290,7 @@ LangSmith is LangChain's observability platform. Enabling it requires zero code 
 **What it captures for each query:**
 - The original user input
 - The rephrased search query generated by `createHistoryAwareRetriever`
-- The exact documents retrieved by `SupabaseHybridSearch` (with scores)
+- The exact documents retrieved by `SupabaseVectorStore` (with scores)
 - The full assembled prompt sent to Gemini
 - The model response and token counts
 - End-to-end latency per step
