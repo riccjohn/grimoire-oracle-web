@@ -11,6 +11,7 @@
     "ingest": "tsx --env-file=.env.local scripts/ingest.ts"
   },
   "dependencies": {
+    "@ai-sdk/react": "^3.0.105",
     "@langchain/classic": "^1.0.20",
     "@langchain/cohere": "^1.0.3",
     "@langchain/community": "^1.1.19",
@@ -20,6 +21,7 @@
     "@radix-ui/react-separator": "^1.1.8",
     "@radix-ui/react-tooltip": "^1.2.8",
     "@supabase/supabase-js": "^2.97.0",
+    "ai": "^6.0.103",
     "langchain": "^1.2.27",
     "next": "16.1.6",
     "react": "19.2.3",

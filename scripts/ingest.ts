@@ -4,12 +4,12 @@ import { MarkdownTextSplitter } from "@langchain/classic/text_splitter"
 import { CohereEmbeddings } from "@langchain/cohere"
 import { SupabaseVectorStore } from "@langchain/community/vectorstores/supabase"
 import type { Document } from "@langchain/core/documents"
+import { EMBEDDING_MODEL, SUPABASE_TABLE_NAME } from "@/lib/constants"
 import { supabaseClient } from "./supabase-admin"
 
 const CHUNK_SIZE = 1000
 const CHUNK_OVERLAP = 100
 const MIN_CHUNK_SIZE = 100
-const SUPABASE_TABLE_NAME = "documents"
 
 type Chunk = Document<Record<string, unknown>>
 
@@ -181,12 +181,15 @@ const createVectorIndex = async (chunks: Chunk[]) => {
   console.log("🧠 Creating embeddings (this may take a moment)...")
 
   const embeddingModel = new CohereEmbeddings({
-    model: "embed-english-v3.0",
+    model: EMBEDDING_MODEL,
   })
 
   // Delete existing documents to prevent duplicate entries
   // PostgREST requires a filter clause on DELETE; `.neq("id", 0)` is the conventional workaround to delete all rows.
-  const { error } = await supabaseClient.from("documents").delete().neq("id", 0)
+  const { error } = await supabaseClient
+    .from(SUPABASE_TABLE_NAME)
+    .delete()
+    .neq("id", 0)
   if (error) throw new Error(`Failed to clear documents: ${error.message}`)
   console.log("🗑  Cleared existing documents...")
 
