@@ -6,7 +6,7 @@ import { ChatInput } from "@/components/ChatInput"
 import { MessageList } from "@/components/MessageList"
 import { ThemeToggle } from "@/components/ThemeToggle"
 
-type ChatMessage = {
+export type ChatMessage = {
   id: string
   role: "user" | "assistant"
   content: string
