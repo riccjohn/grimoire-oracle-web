@@ -1,13 +1,15 @@
 import { toUIMessageStream } from "@ai-sdk/langchain"
-import { createUIMessageStreamResponse } from "ai"
-import type { ChatMessage } from "@/app/page"
+import { createUIMessageStreamResponse, UIMessage } from "ai"
 import { createOracleChain } from "@/lib/oracle-logic"
 
 export const POST = async (req: Request) => {
   const body = await req.json()
-  const { messages }: { messages: ChatMessage[] } = body
+  const { messages }: { messages: UIMessage[] } = body
   const [lastMessage] = messages.slice(-1)
-  const input = lastMessage?.content ?? ""
+  const input = lastMessage?.parts
+    .filter(p => p.type === "text")
+    .map(p => p.text)
+    .join("") ?? ""
 
   const chain = await createOracleChain()
 

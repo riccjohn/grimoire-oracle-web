@@ -1,21 +1,16 @@
 "use client"
 
 import * as ScrollArea from "@radix-ui/react-scroll-area"
+import { ChatStatus, UIMessage } from "ai"
 import { useEffect, useRef } from "react"
 import { Message } from "./Message"
 
-type ChatMessage = {
-  id: string
-  role: "user" | "assistant"
-  content: string
-}
-
 type Props = {
-  messages: ChatMessage[]
-  isStreaming?: boolean
+  messages: UIMessage[]
+  status: ChatStatus
 }
 
-export function MessageList({ messages, isStreaming = false }: Props) {
+export function MessageList({ messages, status }: Props) {
   const bottomRef = useRef<HTMLDivElement>(null)
 
   useEffect(() => {
@@ -30,18 +25,33 @@ export function MessageList({ messages, isStreaming = false }: Props) {
             The oracle awaits your question...
           </p>
         )}
-        {messages.map((msg, i) => (
-          <Message
-            key={msg.id}
-            role={msg.role}
-            content={msg.content}
-            isStreaming={
-              isStreaming &&
-              i === messages.length - 1 &&
-              msg.role === "assistant"
-            }
-          />
-        ))}
+        {messages.map((msg, i) => {
+          const content = msg.parts
+            .filter((p) => p.type === "text")
+            .map((p) => p.text)
+            .join("")
+
+          return (
+            <Message
+              key={msg.id}
+              role={msg.role}
+              content={content}
+              isStreaming={
+                status === "streaming" &&
+                i === messages.length - 1 &&
+                msg.role === "assistant"
+              }
+            />
+          )
+        })}
+        {status === "submitted" && messages.at(-1)?.role === "user" && (
+          <div className="pl-3 py-1 mb-4 border-l-2 border-bg-subtle">
+            <p className="font-mono text-xs text-fg-subtle mb-1 select-none">🧙 Oracle</p>
+            <p className="font-mono text-sm text-fg-subtle animate-pulse">
+              Consulting the grimoire…
+            </p>
+          </div>
+        )}
         <div ref={bottomRef} />
       </ScrollArea.Viewport>
       <ScrollArea.Scrollbar

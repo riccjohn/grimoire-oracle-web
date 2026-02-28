@@ -1,5 +1,7 @@
+import type { UIMessage } from "ai"
+
 type Props = {
-  role: "user" | "assistant"
+  role: UIMessage["role"]
   content: string
   isStreaming?: boolean
 }
