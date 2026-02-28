@@ -6,19 +6,19 @@ This document captures the architectural decisions and implementation plan for G
 
 ## Stack
 
-| Layer              | Choice                                 |
-| ------------------ | -------------------------------------- |
-| Chat LLM           | Google Gemini (`gemini-2.0-flash`)     |
-| Embeddings         | Cohere (`embed-english-v3.0`, 1024-dim)  |
-| Vector Store       | Supabase pgvector                      |
-| Retrieval          | `SupabaseVectorStore` (vector search via `match_documents`) |
+| Layer              | Choice                                                          |
+| ------------------ | --------------------------------------------------------------- |
+| Chat LLM           | Google Gemini (`gemini-2.0-flash`)                              |
+| Embeddings         | Cohere (`embed-english-v3.0`, 1024-dim)                         |
+| Vector Store       | Supabase pgvector                                               |
+| Retrieval          | `SupabaseVectorStore` (vector search via `match_documents`)     |
 | Hybrid Search      | Deferred — add `hybrid_search` RPC if retrieval quality is poor |
-| UI                 | Next.js 15 App Router                  |
-| Frontend streaming | Vercel AI SDK (`useChat` hook)         |
-| API key protection | Next.js API routes (server-side)       |
-| Deployment         | GitHub Actions → Vercel (on push to `main`) |
-| Ingestion trigger  | GitHub Actions manual workflow              |
-| Hosting            | Vercel                                 |
+| UI                 | Next.js 15 App Router                                           |
+| Frontend streaming | Vercel AI SDK (`useChat` hook)                                  |
+| API key protection | Next.js API routes (server-side)                                |
+| Deployment         | GitHub Actions → Vercel (on push to `main`)                     |
+| Ingestion trigger  | GitHub Actions manual workflow                                  |
+| Hosting            | Vercel                                                          |
 
 ### Stack rationale
 
@@ -117,17 +117,17 @@ SUPABASE_SERVICE_ROLE_KEY=   # Write access — bypasses RLS
 
 **Where each variable lives:**
 
-| Variable | `.env.local` | Vercel settings | GitHub Actions |
-|---|---|---|---|
-| `GOOGLE_API_KEY` | Yes | Yes | No |
-| `COHERE_API_KEY` | Yes | No | Yes (ingest) |
-| `SUPABASE_URL` | Yes | Yes | No |
-| `SUPABASE_ANON_KEY` | Yes | Yes | No |
-| `LANGCHAIN_TRACING_V2` | Yes | Yes | No |
-| `LANGCHAIN_API_KEY` | Yes | Yes | No |
-| `LANGCHAIN_PROJECT` | Yes | Yes | No |
-| `SUPABASE_SERVICE_ROLE_KEY` | Yes (local ingest) | **Never** | Yes |
-| `VERCEL_TOKEN` | No | No | Yes |
+| Variable                    | `.env.local`       | Vercel settings | GitHub Actions |
+| --------------------------- | ------------------ | --------------- | -------------- |
+| `GOOGLE_API_KEY`            | Yes                | Yes             | No             |
+| `COHERE_API_KEY`            | Yes                | No              | Yes (ingest)   |
+| `SUPABASE_URL`              | Yes                | Yes             | No             |
+| `SUPABASE_ANON_KEY`         | Yes                | Yes             | No             |
+| `LANGCHAIN_TRACING_V2`      | Yes                | Yes             | No             |
+| `LANGCHAIN_API_KEY`         | Yes                | Yes             | No             |
+| `LANGCHAIN_PROJECT`         | Yes                | Yes             | No             |
+| `SUPABASE_SERVICE_ROLE_KEY` | Yes (local ingest) | **Never**       | Yes            |
+| `VERCEL_TOKEN`              | No                 | No              | Yes            |
 
 `SUPABASE_SERVICE_ROLE_KEY` bypasses Row Level Security entirely — if it were set in Vercel, a bug in the Next.js app could expose write access to the database. Keep it out of Vercel.
 
@@ -166,11 +166,11 @@ jobs:
 
 ### Secrets to configure (Settings → Secrets and variables → Actions)
 
-| Secret | Notes |
-|---|---|
-| `SUPABASE_URL` | Supabase project REST URL |
+| Secret                      | Notes                             |
+| --------------------------- | --------------------------------- |
+| `SUPABASE_URL`              | Supabase project REST URL         |
 | `SUPABASE_SERVICE_ROLE_KEY` | Bypasses RLS — keep out of Vercel |
-| `COHERE_API_KEY` | Embedding model credentials |
+| `COHERE_API_KEY`            | Embedding model credentials       |
 
 `SUPABASE_SERVICE_ROLE_KEY` bypasses Row Level Security — keep it out of Vercel entirely. The deployed Next.js app uses `SUPABASE_ANON_KEY` (set in Vercel project settings), scoped to read-only queries via RLS.
 
@@ -199,6 +199,7 @@ jobs:
 The ingestion script reads markdown files from `vault/`, chunks and enriches them, embeds each chunk with `CohereEmbeddings`, and writes everything to the Supabase `documents` table via `SupabaseVectorStore.fromDocuments()`.
 
 Key functions to implement:
+
 - `splitDocsIntoChunks` — load and chunk markdown files
 - `mergeSmallChunks` — combine fragments below a minimum token threshold
 - `enrichChunksWithMetadata` — attach source file, section title, etc.
@@ -231,20 +232,24 @@ import { AIMessage, HumanMessage } from '@langchain/core/messages';
 import type { Message } from 'ai';
 
 export async function POST(req: Request) {
-  const { messages }: { messages: Message[] } = await req.json();
+	const { messages }: { messages: Message[] } = await req.json();
 
-  const chatHistory = messages.slice(0, -1).map((m) =>
-    m.role === 'user' ? new HumanMessage(m.content) : new AIMessage(m.content),
-  );
-  const input = messages.at(-1)?.content ?? '';
+	const chatHistory = messages
+		.slice(0, -1)
+		.map((m) =>
+			m.role === 'user'
+				? new HumanMessage(m.content)
+				: new AIMessage(m.content),
+		);
+	const input = messages.at(-1)?.content ?? '';
 
-  const chain = await setupOracle();
-  const stream = await chain.stream({ input, chat_history: chatHistory });
+	const chain = await setupOracle();
+	const stream = await chain.stream({ input, chat_history: chatHistory });
 
-  // LangChainAdapter bridges LangChain's output stream to the AI SDK data stream format
-  return LangChainAdapter.toDataStreamResponse(stream, {
-    inputKey: 'answer', // tells the adapter which key in the chunk holds the text
-  });
+	// LangChainAdapter bridges LangChain's output stream to the AI SDK data stream format
+	return LangChainAdapter.toDataStreamResponse(stream, {
+		inputKey: 'answer', // tells the adapter which key in the chunk holds the text
+	});
 }
 ```
 
@@ -288,6 +293,7 @@ export default function Page() {
 LangSmith is LangChain's observability platform. Enabling it requires zero code changes — just three environment variables. Every chain invocation is automatically traced.
 
 **What it captures for each query:**
+
 - The original user input
 - The rephrased search query generated by `createHistoryAwareRetriever`
 - The exact documents retrieved by `SupabaseVectorStore` (with scores)
@@ -296,6 +302,7 @@ LangSmith is LangChain's observability platform. Enabling it requires zero code 
 - End-to-end latency per step
 
 This is the primary tool for debugging RAG quality issues. Failures in RAG systems fall into two buckets:
+
 1. **Retrieval failure** — the right documents weren't surfaced (fix: tune chunking, embedding model, or hybrid search weights)
 2. **Generation failure** — the right documents were retrieved but Gemini synthesized a bad answer (fix: tune the system prompt)
 
@@ -304,6 +311,7 @@ LangSmith lets you distinguish between them by inspecting actual traces — you 
 **Free tier:** 100K traces/month — more than enough for a personal project.
 
 **Setup:** Add to `.env.local` and Vercel project settings:
+
 ```bash
 LANGCHAIN_TRACING_V2=true
 LANGCHAIN_API_KEY=           # From smith.langchain.com
@@ -315,6 +323,7 @@ No code changes required. LangChain picks these up automatically.
 ### Vercel built-ins (zero setup)
 
 Vercel provides request logs and basic analytics on the free plan with no configuration:
+
 - **Functions tab** — real-time logs for API route invocations, including cold start times
 - **Analytics** — page view counts (enable in Vercel dashboard, one click)
 
