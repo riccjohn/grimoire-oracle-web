@@ -11,8 +11,8 @@ export const POST = async (req: Request) => {
 
   const chain = await createOracleChain()
 
-  // Stream only the "answer" key from the retrieval chain output (ignores the "context" docs)
-  const langchainStream = await chain.pick("answer").stream({ input })
+  // Use streamEvents to emit fine-grained chain events (including individual LLM tokens)
+  const langchainStream = chain.streamEvents({ input }, { version: "v2" })
 
   // Convert the LangChain stream to a format the AI SDK understands
   const uiStream = toUIMessageStream(langchainStream)

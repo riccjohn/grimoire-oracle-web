@@ -1,9 +1,9 @@
+import { ChatAnthropic } from "@langchain/anthropic"
 import { createStuffDocumentsChain } from "@langchain/classic/chains/combine_documents"
 import { createRetrievalChain } from "@langchain/classic/chains/retrieval"
 import { CohereEmbeddings } from "@langchain/cohere"
 import { SupabaseVectorStore } from "@langchain/community/vectorstores/supabase"
 import { ChatPromptTemplate } from "@langchain/core/prompts"
-import { ChatGoogleGenerativeAI } from "@langchain/google-genai"
 import {
   CHATBOT_MODEL,
   EMBEDDING_MODEL,
@@ -34,7 +34,7 @@ export const createOracleChain = async () => {
 
   const retriever = vectorStore.asRetriever({ k: RETRIEVAL_K })
 
-  const llm = new ChatGoogleGenerativeAI({ model: CHATBOT_MODEL })
+  const llm = new ChatAnthropic({ model: CHATBOT_MODEL })
 
   const prompt = createAnswerPrompt()
 
