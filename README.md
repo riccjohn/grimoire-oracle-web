@@ -10,3 +10,5 @@ This is a web version of my initial proof-of-concept TUI RAG chatbot [Grimoire O
 - Add relevant envionment variables to .env.local (see `.env.example`)
 
 See `/supabase/schema.sql` to set up a new table in your Supabase project
+
+> **Note:** RLS is enabled on the `documents` table with a public read policy (defined in `schema.sql`). Without this policy, the anon key returns empty results from the vector store and the chatbot will never retrieve any context.

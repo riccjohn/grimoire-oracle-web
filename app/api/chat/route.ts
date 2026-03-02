@@ -1,5 +1,6 @@
 import { toUIMessageStream } from "@ai-sdk/langchain"
 import { createUIMessageStreamResponse, UIMessage } from "ai"
+import { DEBUG } from "@/lib/constants"
 import { createOracleChain } from "@/lib/oracle-logic"
 
 export const POST = async (req: Request) => {
@@ -10,6 +11,8 @@ export const POST = async (req: Request) => {
     .filter(p => p.type === "text")
     .map(p => p.text)
     .join("") ?? ""
+
+  if (DEBUG) console.log("[route] input:", input)
 
   const chain = await createOracleChain()
 

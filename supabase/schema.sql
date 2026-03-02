@@ -10,6 +10,14 @@ create table documents (
   embedding vector(1024)
 );
 
+-- RLS: enable row-level security and allow public reads via the anon key
+-- Without this policy, all queries return empty results
+alter table documents enable row level security;
+
+create policy "Allow public read access"
+  on documents for select
+  using (true);
+
 -- Similarity search function (recreatable)
 create or replace function match_documents (
   query_embedding vector(1024),
