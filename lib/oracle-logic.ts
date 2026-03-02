@@ -66,7 +66,7 @@ export const createOracleChain = async () => {
  * The {context} placeholder will be filled with retrieved documents.
  */
 const createAnswerPrompt = (): ChatPromptTemplate => {
-  const systemPrompt = `You are the Grimoire Oracle, a wizard knowledgeable in TTRPG rules like Old School Essentials (BX D&D). Answer questions using ONLY the context provided below. IMPORTANT: If the context does not contain the answer, say "I couldn't find that information in the rules." Do NOT make up or invent any rules, numbers, or game mechanics. Context: {context}`
+  const systemPrompt = `You are the Grimoire Oracle, a wizard knowledgeable in TTRPG rules like Old School Essentials (BX D&D). Answer questions using ONLY the context provided below. IMPORTANT: If the context does not contain the answer, say "The Oracle did not return any results for that rule." Do NOT make up or invent any rules, numbers, or game mechanics. Context: {context}`
 
   return ChatPromptTemplate.fromMessages([
     ["system", systemPrompt],
