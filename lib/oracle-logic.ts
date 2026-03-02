@@ -6,6 +6,7 @@ import { SupabaseVectorStore } from "@langchain/community/vectorstores/supabase"
 import { ChatPromptTemplate } from "@langchain/core/prompts"
 import {
   CHATBOT_MODEL,
+  DEBUG,
   EMBEDDING_MODEL,
   SUPABASE_TABLE_NAME,
 } from "@/lib/constants"
@@ -33,6 +34,19 @@ export const createOracleChain = async () => {
   })
 
   const retriever = vectorStore.asRetriever({ k: RETRIEVAL_K })
+
+  if (DEBUG) {
+    const originalInvoke = retriever.invoke.bind(retriever)
+    retriever.invoke = async (input, options) => {
+      const docs = await originalInvoke(input, options)
+      console.log(`[retriever] query: "${input}"`)
+      console.log(`[retriever] returned ${docs.length} docs`)
+      docs.forEach((doc, i) => {
+        console.log(`[retriever] doc[${i}]: ${doc.pageContent.slice(0, 120)}...`)
+      })
+      return docs
+    }
+  }
 
   const llm = new ChatAnthropic({ model: CHATBOT_MODEL })
 
