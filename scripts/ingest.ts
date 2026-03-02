@@ -9,7 +9,6 @@ import { supabaseClient } from "./supabase-admin"
 
 const CHUNK_SIZE = 1000
 const CHUNK_OVERLAP = 100
-const MIN_CHUNK_SIZE = 100
 
 type Chunk = Document<Record<string, unknown>>
 
@@ -19,8 +18,7 @@ const main = async () => {
   try {
     const docs = await loadDocs("./vault/")
     const chunks = await splitDocsIntoChunks(docs)
-    const mergedChunks = mergeSmallChunks(chunks)
-    const enrichedChunks = enrichChunksWithMetadata(mergedChunks)
+    const enrichedChunks = enrichChunksWithMetadata(chunks)
 
     if (enrichedChunks.length === 0) {
       console.error(
@@ -72,56 +70,6 @@ const splitDocsIntoChunks = async (docs: Chunk[]) => {
   const chunks = await splitter.splitDocuments(docs)
   console.log(`✅ Created ${chunks.length} chunks:`)
   return chunks
-}
-
-/**
- * Merges small chunks with the following chunk from the same document.
- * Prevents orphaned headers from becoming standalone chunks.
- * @param chunks - Array of Document chunks
- * @returns Array with small chunks merged into their neighbors
- */
-const mergeSmallChunks = (chunks: Chunk[]) => {
-  console.log("\n🔗 Merging small chunks...")
-
-  const { merged, pending } = chunks.reduce<{
-    merged: Chunk[]
-    pending: Chunk | null
-  }>(
-    (acc, current) => {
-      if (acc.pending === null) {
-        if (current.pageContent.length < MIN_CHUNK_SIZE) {
-          return { merged: acc.merged, pending: current }
-        }
-        return { merged: [...acc.merged, current], pending: null }
-      }
-
-      const sameSource = acc.pending.metadata.source === current.metadata.source
-
-      if (sameSource) {
-        const combined: Chunk = {
-          pageContent: acc.pending.pageContent + "\n\n" + current.pageContent,
-          metadata: acc.pending.metadata,
-        }
-        if (combined.pageContent.length < MIN_CHUNK_SIZE) {
-          return { merged: acc.merged, pending: combined }
-        }
-        return { merged: [...acc.merged, combined], pending: null }
-      }
-
-      // Different source: flush pending, then handle current
-      const flushed = [...acc.merged, acc.pending]
-      if (current.pageContent.length < MIN_CHUNK_SIZE) {
-        return { merged: flushed, pending: current }
-      }
-      return { merged: [...flushed, current], pending: null }
-    },
-    { merged: [], pending: null }
-  )
-
-  const result = pending ? [...merged, pending] : merged
-
-  console.log(`✅ Merged ${chunks.length} → ${result.length} chunks`)
-  return result
 }
 
 /**
