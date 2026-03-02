@@ -13,7 +13,7 @@ import {
 import { supabaseClient } from "@/lib/supabase-client"
 
 /** Number of document chunks to retrieve from the vector store per query. */
-const RETRIEVAL_K = 5
+const RETRIEVAL_K = 10
 
 /**
  * Assembles the RAG chain for the Grimoire Oracle.
