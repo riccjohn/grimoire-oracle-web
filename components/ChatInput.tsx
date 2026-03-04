@@ -1,6 +1,6 @@
 "use client"
 
-import { useRef, useState } from "react"
+import { useEffect, useRef, useState } from "react"
 
 type Props = {
   onSubmit: (value: string) => void
@@ -10,6 +10,12 @@ type Props = {
 export function ChatInput({ onSubmit, isDisabled = false }: Props) {
   const [value, setValue] = useState("")
   const textareaRef = useRef<HTMLTextAreaElement>(null)
+
+  useEffect(() => {
+    if (!isDisabled) {
+      textareaRef.current?.focus()
+    }
+  }, [isDisabled])
 
   const handleSubmit = () => {
     const trimmed = value.trim()
