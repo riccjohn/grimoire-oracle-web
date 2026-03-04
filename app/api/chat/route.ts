@@ -1,5 +1,10 @@
 import { anthropic } from "@ai-sdk/anthropic"
-import { convertToModelMessages, streamText, type TextUIPart, type UIMessage } from "ai"
+import {
+  convertToModelMessages,
+  streamText,
+  type TextUIPart,
+  type UIMessage,
+} from "ai"
 import { CHATBOT_MODEL, DEBUG } from "@/lib/constants"
 import { retrieveContext } from "@/lib/retrieval"
 
