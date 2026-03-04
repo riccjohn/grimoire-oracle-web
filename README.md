@@ -4,6 +4,8 @@ A TTRPG rules-lookup chatbot built with Next.js, the Vercel AI SDK, and Supabase
 
 Based on my initial proof-of-concept TUI chatbot: [Grimoire Oracle](https://github.com/riccjohn/grimoire-oracle).
 
+<image src='docs/assets/Grimoire_Oracle-Screenshot.png' alt='screenshot of Grimoire Oracle UI' width='400' />
+
 ## Stack
 
 | Layer      | Choice                                    |
@@ -72,6 +74,10 @@ Open [http://localhost:3000](http://localhost:3000).
 | `pnpm ingest`  | Run ingestion pipeline               |
 | `pnpm lint`    | ESLint                               |
 | `pnpm format`  | Biome formatter                      |
+
+## Disabling the chatbot
+
+Set `CHATBOT_ENABLED=false` in your Vercel environment variables to disable the chatbot. All requests will return a static offline message without calling the LLM or the vector store, preventing token burn when the app is publicly accessible but not actively in use. Remove the variable (or set it to any other value) to re-enable.
 
 ## Debugging retrieval
 

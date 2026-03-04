@@ -6,3 +6,4 @@ export const CHATBOT_MODEL = "claude-haiku-4-5"
 export const RETRIEVAL_K = 10
 
 export const DEBUG = process.env.DEBUG === "true"
+export const CHATBOT_ENABLED = process.env.CHATBOT_ENABLED !== "false"

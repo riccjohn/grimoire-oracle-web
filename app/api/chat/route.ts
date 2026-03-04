@@ -1,11 +1,13 @@
 import { anthropic } from "@ai-sdk/anthropic"
 import {
   convertToModelMessages,
+  createUIMessageStream,
+  createUIMessageStreamResponse,
   streamText,
   type TextUIPart,
   type UIMessage,
 } from "ai"
-import { CHATBOT_MODEL, DEBUG } from "@/lib/constants"
+import { CHATBOT_ENABLED, CHATBOT_MODEL, DEBUG } from "@/lib/constants"
 import { retrieveContext } from "@/lib/retrieval"
 
 export const POST = async (req: Request) => {
@@ -14,6 +16,18 @@ export const POST = async (req: Request) => {
 
   if (!Array.isArray(messages) || messages.length === 0) {
     return new Response("messages must be a non-empty array", { status: 400 })
+  }
+
+  if (!CHATBOT_ENABLED) {
+    const id = "offline"
+    const stream = createUIMessageStream({
+      execute: ({ writer }) => {
+        writer.write({ type: "text-start", id })
+        writer.write({ type: "text-delta", id, delta: "The Oracle is currently offline." })
+        writer.write({ type: "text-end", id })
+      },
+    })
+    return createUIMessageStreamResponse({ stream })
   }
 
   const [lastMessage] = messages.slice(-1)
