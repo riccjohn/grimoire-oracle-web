@@ -1,75 +1,81 @@
-import { DirectoryLoader } from "@langchain/classic/document_loaders/fs/directory"
-import { TextLoader } from "@langchain/classic/document_loaders/fs/text"
-import { MarkdownTextSplitter } from "@langchain/classic/text_splitter"
-import { CohereEmbeddings } from "@langchain/cohere"
-import { SupabaseVectorStore } from "@langchain/community/vectorstores/supabase"
-import type { Document } from "@langchain/core/documents"
+import fs from "node:fs"
+import path from "node:path"
+import { fileURLToPath } from "node:url"
+import { cohere } from "@ai-sdk/cohere"
+import { embedMany } from "ai"
+import cliProgress from "cli-progress"
+import ora from "ora"
 import { EMBEDDING_MODEL, SUPABASE_TABLE_NAME } from "@/lib/constants"
 import { supabaseClient } from "./supabase-admin"
 
-const CHUNK_SIZE = 1000
-const CHUNK_OVERLAP = 100
+const MAX_CHUNK_SIZE = 1000
+const EMBED_BATCH_SIZE = 96
 
-type Chunk = Document<Record<string, unknown>>
+export type Document = { source: string; content: string }
+export type EnrichedChunk = {
+  metadata: { source: string; title: string }
+  content: string
+}
+export type EmbeddedChunk = EnrichedChunk & { embedding: number[] }
 
-const main = async () => {
+const runIngestionPipeline = async () => {
   console.log("Starting ingestion pipeline ...")
 
-  try {
-    const docs = await loadDocs("./vault/")
-    const chunks = await splitDocsIntoChunks(docs)
-    const enrichedChunks = enrichChunksWithMetadata(chunks)
+  const loadSpinner = ora("Loading vault...").start()
+  const docs = loadVaultFiles("./vault/")
+  const chunks = splitMarkdownDocs(docs)
+  const enrichedChunks = enrichChunksWithMetadata(chunks)
+  loadSpinner.succeed(
+    `Loaded ${docs.length} files → ${enrichedChunks.length} chunks`
+  )
+  const embeddedChunks = await embedChunks(enrichedChunks)
+  storeChunks(embeddedChunks)
+}
 
-    if (enrichedChunks.length === 0) {
-      console.error(
-        "❌ No chunks to ingest — aborting to avoid clearing the index with no replacement data."
-      )
-      throw new Error("Enriched chunks array is empty after processing.")
+/**
+ * Recursively walks `dir` and returns all `.md` files found.
+ *
+ * @param dir - Path to the directory to search (absolute or relative to cwd).
+ * @returns An array of `{ source, content }` objects — one per `.md` file —
+ * where `source` is the full file path and `content` is the raw UTF-8 text.
+ * @throws If `dir` does not exist or cannot be read.
+ */
+export const loadVaultFiles = (dir: string) => {
+  const results: Document[] = []
+
+  for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
+    const fullPath = path.join(dir, entry.name)
+
+    if (entry.isDirectory()) {
+      results.push(...loadVaultFiles(fullPath))
+    } else if (entry.isFile() && entry.name.endsWith(".md")) {
+      const content = fs.readFileSync(fullPath, "utf-8")
+      results.push({ source: fullPath, content })
     }
-
-    await createVectorIndex(enrichedChunks)
-  } catch (error) {
-    console.error("❌ Ingestion failed:", error)
-    process.exit(1)
   }
+
+  return results
 }
 
-/**
- * Loads all markdown files from a directory into LangChain Document objects.
- * @param docPath - Path to the directory containing markdown files
- * @returns Array of Document objects with pageContent and metadata.source
- */
-const loadDocs = async (docPath: string) => {
-  console.log("📂 Loading vault...")
-
-  const loader = new DirectoryLoader(docPath, {
-    ".md": (path) => new TextLoader(path),
+export const splitMarkdownDocs = (documents: Document[]) => {
+  return documents.flatMap((doc) => {
+    const { content, source } = doc
+    const splitContent = content
+      .split(/(?=\n#{1,3} )/)
+      .flatMap((chunk) => splitLargeChunks(source, chunk.trim()))
+      .filter((chunk) => chunk.content.length > 0)
+    return splitContent
   })
-
-  const docs = await loader.load()
-
-  console.log(`✅ Loaded ${docs.length} documents:`)
-
-  return docs
 }
 
-/**
- * Splits documents into smaller chunks for embedding.
- * Uses recursive character splitting with configurable size and overlap.
- * @param docs - Array of Document objects to split
- * @returns Array of smaller Document chunks, each preserving original metadata
- */
-const splitDocsIntoChunks = async (docs: Chunk[]) => {
-  console.log("\n✂️ Splitting into chunks...")
+const splitLargeChunks = (source: string, content: string) => {
+  if (content.length <= MAX_CHUNK_SIZE) return [{ source, content }]
 
-  const splitter = new MarkdownTextSplitter({
-    chunkSize: CHUNK_SIZE,
-    chunkOverlap: CHUNK_OVERLAP,
-  })
-
-  const chunks = await splitter.splitDocuments(docs)
-  console.log(`✅ Created ${chunks.length} chunks:`)
-  return chunks
+  const slices: Document[] = []
+  for (let i = 0; i < content.length; i += MAX_CHUNK_SIZE) {
+    slices.push({ source, content: content.slice(i, i + MAX_CHUNK_SIZE) })
+  }
+  return slices
 }
 
 /**
@@ -104,49 +110,101 @@ const extractTitleFromPath = (filepath: string) => {
 }
 
 /**
- * Prepends document title to each chunk's content to improve retrieval.
+ * Adds document title to chunk metadata to improve retrieval.
  * Helps embedding models match user queries like "Light spell" to relevant chunks.
- * @param chunks - Array of Document chunks with metadata.source containing file paths
- * @returns Array of chunks with titles prepended to pageContent
+ * @param chunks - Array of  chunks
+ * @returns Array of chunks with titles added as metadata
  */
-const enrichChunksWithMetadata = (chunks: Chunk[]) => {
+export const enrichChunksWithMetadata = (
+  chunks: Document[]
+): EnrichedChunk[] => {
   console.log("🧂 Enriching chunks with metadata")
   return chunks.map((chunk) => {
-    const filepath =
-      typeof chunk.metadata.source === "string"
-        ? chunk.metadata.source
-        : "unknown"
-    const title = extractTitleFromPath(filepath)
-    return { ...chunk, pageContent: `[${title}]\n${chunk.pageContent}` }
+    const title = extractTitleFromPath(chunk.source)
+    return {
+      content: chunk.content,
+      metadata: { source: chunk.source, title },
+    }
   })
 }
 
 /**
- * Converts document chunks into vector embeddings and inserts them into Supabase.
- * @param chunks - Document chunks to vectorize
+ * Embeds each chunk's content using the Cohere embedding model.
+ *
+ * Batches chunks into groups of {@link EMBED_BATCH_SIZE} and processes them
+ * sequentially with a delay between each batch to stay within Cohere's
+ * trial tier rate limit (100k tokens/minute).
+ *
+ * @param chunks - Enriched chunks to embed.
+ * @returns The same chunks with an `embedding` vector attached to each,
+ *          in the same order as the input.
+ * @throws If the Cohere API call fails after retries.
  */
-const createVectorIndex = async (chunks: Chunk[]) => {
-  console.log("🧠 Creating embeddings (this may take a moment)...")
+export const embedChunks = async (
+  chunks: EnrichedChunk[]
+): Promise<EmbeddedChunk[]> => {
+  const model = cohere.embedding(EMBEDDING_MODEL)
+  const batches = Array.from(
+    { length: Math.ceil(chunks.length / EMBED_BATCH_SIZE) },
+    (_, i) => chunks.slice(i * EMBED_BATCH_SIZE, (i + 1) * EMBED_BATCH_SIZE)
+  )
 
-  const embeddingModel = new CohereEmbeddings({
-    model: EMBEDDING_MODEL,
-  })
+  const bar = new cliProgress.SingleBar(
+    { format: "Embedding [{bar}] {value}/{total} batches" },
+    cliProgress.Presets.shades_classic
+  )
+  bar.start(batches.length, 0)
 
+  const allEmbeddings = await batches.reduce(
+    async (accPromise, batch, batchIndex) => {
+      const acc = await accPromise
+      const { embeddings } = await embedMany({
+        model,
+        values: batch.map((c) => c.content),
+      })
+      bar.increment()
+      // Cohere trial tier allows ~100k tokens/minute; pause between batches to avoid rate limit.
+      // Skip the delay after the last batch so ingestion finishes immediately.
+      const isLastBatch = batchIndex === batches.length - 1
+      if (!isLastBatch) {
+        await new Promise((r) => setTimeout(r, 15_000))
+      }
+      return [...acc, ...embeddings]
+    },
+    Promise.resolve([] as number[][])
+  )
+
+  bar.stop()
+
+  console.log(`✅ Embedded ${allEmbeddings.length} chunks`)
+  return chunks.map((chunk, i) => ({ ...chunk, embedding: allEmbeddings[i] }))
+}
+
+const storeChunks = async (chunks: EmbeddedChunk[]) => {
   // Delete existing documents to prevent duplicate entries
   // PostgREST requires a filter clause on DELETE; `.neq("id", 0)` is the conventional workaround to delete all rows.
-  const { error } = await supabaseClient
+  const { error: supabaseClearError } = await supabaseClient
     .from(SUPABASE_TABLE_NAME)
     .delete()
     .neq("id", 0)
-  if (error) throw new Error(`Failed to clear documents: ${error.message}`)
-  console.log("🗑  Cleared existing documents...")
 
-  await SupabaseVectorStore.fromDocuments(chunks, embeddingModel, {
-    client: supabaseClient,
-    tableName: SUPABASE_TABLE_NAME,
-  })
+  if (supabaseClearError) {
+    throw new Error(`Failed to clear documents: ${supabaseClearError.message}`)
+  } else {
+    console.log("🗑  Cleared existing documents...")
+  }
 
-  console.log("✅ Index saved to Supabase ⚡️")
+  const { error: supabaseInsertError } = await supabaseClient
+    .from(SUPABASE_TABLE_NAME)
+    .insert(chunks)
+
+  if (supabaseInsertError) {
+    throw new Error(`Failed to insert chunks: ${supabaseInsertError.message}`)
+  } else {
+    console.log(`✅ Stored ${chunks.length} chunks`)
+  }
 }
 
-main()
+if (process.argv[1] === fileURLToPath(import.meta.url)) {
+  runIngestionPipeline()
+}

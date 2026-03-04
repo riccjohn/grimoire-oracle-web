@@ -46,7 +46,9 @@ export function MessageList({ messages, status }: Props) {
         })}
         {status === "submitted" && messages.at(-1)?.role === "user" && (
           <div className="pl-3 py-1 mb-4 border-l-2 border-bg-subtle">
-            <p className="font-mono text-xs text-fg-subtle mb-1 select-none">🧙 Oracle</p>
+            <p className="font-mono text-xs text-fg-subtle mb-1 select-none">
+              🧙 Oracle
+            </p>
             <p className="font-mono text-sm text-fg-subtle animate-pulse">
               Consulting the grimoire…
             </p>
