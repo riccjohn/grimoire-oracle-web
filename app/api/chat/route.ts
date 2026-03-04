@@ -1,26 +1,34 @@
-import { toUIMessageStream } from "@ai-sdk/langchain"
-import { createUIMessageStreamResponse, UIMessage } from "ai"
-import { DEBUG } from "@/lib/constants"
-import { createOracleChain } from "@/lib/oracle-logic"
+import { anthropic } from "@ai-sdk/anthropic"
+import { convertToModelMessages, streamText, type TextUIPart, type UIMessage } from "ai"
+import { CHATBOT_MODEL, DEBUG } from "@/lib/constants"
+import { retrieveContext } from "@/lib/retrieval"
 
 export const POST = async (req: Request) => {
   const body = await req.json()
   const { messages }: { messages: UIMessage[] } = body
+
+  if (!Array.isArray(messages) || messages.length === 0) {
+    return new Response("messages must be a non-empty array", { status: 400 })
+  }
+
   const [lastMessage] = messages.slice(-1)
-  const input = lastMessage?.parts
-    .filter(p => p.type === "text")
-    .map(p => p.text)
-    .join("") ?? ""
+  const input =
+    lastMessage?.parts
+      .filter((p): p is TextUIPart => p.type === "text")
+      .map((p) => p.text)
+      .join("") ?? ""
 
   if (DEBUG) console.log("[route] input:", input)
 
-  const chain = await createOracleChain()
+  const context = await retrieveContext(input)
 
-  // Use streamEvents to emit fine-grained chain events (including individual LLM tokens)
-  const langchainStream = chain.streamEvents({ input }, { version: "v2" })
+  const system = `You are the Grimoire Oracle, a wizard knowledgeable in TTRPG rules like Old School Essentials (BX D&D). Answer questions using ONLY the context provided below. IMPORTANT: If the context does not contain the answer, say "The Oracle did not return any results for that rule." Do NOT make up or invent any rules, numbers, or game mechanics. Context: ${context}`
 
-  // Convert the LangChain stream to a format the AI SDK understands
-  const uiStream = toUIMessageStream(langchainStream)
+  const result = streamText({
+    model: anthropic(CHATBOT_MODEL),
+    system,
+    messages: await convertToModelMessages(messages),
+  })
 
-  return createUIMessageStreamResponse({ stream: uiStream })
+  return result.toUIMessageStreamResponse()
 }
