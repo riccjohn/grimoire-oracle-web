@@ -1,22 +1,33 @@
 import fs from "node:fs"
+import { fileURLToPath } from "node:url"
 import path from "node:path"
+import { embedMany } from "ai"
+import { cohere } from "@ai-sdk/cohere"
+import ora from "ora"
+import cliProgress from "cli-progress"
+import { EMBEDDING_MODEL } from "@/lib/constants"
 
 const MAX_CHUNK_SIZE = 1000
+const EMBED_BATCH_SIZE = 96
 
-type Document = { source: string; content: string }
-type EnrichedChunk = {
+export type Document = { source: string; content: string }
+export type EnrichedChunk = {
   metadata: { source: string; title: string }
   content: string
 }
+export type EmbeddedChunk = EnrichedChunk & { embedding: number[] }
 
 const runIngestionPipeline = async () => {
   console.log("Starting ingestion pipeline ...")
 
-  console.log("📂 Loading vault...")
+  const loadSpinner = ora("Loading vault...").start()
   const docs = loadVaultFiles("./vault/")
-  console.log(`✅ Loaded ${docs.length} documents:`)
   const chunks = splitMarkdownDocs(docs)
   const enrichedChunks = enrichChunksWithMetadata(chunks)
+  loadSpinner.succeed(`Loaded ${docs.length} files → ${enrichedChunks.length} chunks`)
+
+  // TODO: pass to storeChunks
+  const embeddedChunks = await embedChunks(enrichedChunks)
 }
 
 /**
@@ -50,6 +61,7 @@ export const splitMarkdownDocs = (documents: Document[]) => {
     const splitContent = content
       .split(/(?=\n#{1,3} )/)
       .flatMap((chunk) => splitLargeChunks(source, chunk.trim()))
+      .filter((chunk) => chunk.content.length > 0)
     return splitContent
   })
 }
@@ -101,15 +113,71 @@ const extractTitleFromPath = (filepath: string) => {
  * @param chunks - Array of  chunks
  * @returns Array of chunks with titles added as metadata
  */
-export const enrichChunksWithMetadata = (chunks: Document[]) => {
+export const enrichChunksWithMetadata = (chunks: Document[]): EnrichedChunk[] => {
   console.log("🧂 Enriching chunks with metadata")
   return chunks.map((chunk) => {
     const title = extractTitleFromPath(chunk.source)
     return {
       content: chunk.content,
       metadata: { source: chunk.source, title },
-    } as EnrichedChunk
+    }
   })
 }
 
-runIngestionPipeline()
+
+
+/**
+ * Embeds each chunk's content using the Cohere embedding model.
+ *
+ * Batches chunks into groups of {@link EMBED_BATCH_SIZE} and processes them
+ * sequentially with a delay between each batch to stay within Cohere's
+ * trial tier rate limit (100k tokens/minute).
+ *
+ * @param chunks - Enriched chunks to embed.
+ * @returns The same chunks with an `embedding` vector attached to each,
+ *          in the same order as the input.
+ * @throws If the Cohere API call fails after retries.
+ */
+export const embedChunks = async (
+  chunks: EnrichedChunk[]
+): Promise<EmbeddedChunk[]> => {
+  const model = cohere.embedding(EMBEDDING_MODEL)
+  const batches = Array.from(
+    { length: Math.ceil(chunks.length / EMBED_BATCH_SIZE) },
+    (_, i) => chunks.slice(i * EMBED_BATCH_SIZE, (i + 1) * EMBED_BATCH_SIZE)
+  )
+
+  const bar = new cliProgress.SingleBar(
+    { format: "Embedding [{bar}] {value}/{total} batches" },
+    cliProgress.Presets.shades_classic
+  )
+  bar.start(batches.length, 0)
+
+  const allEmbeddings = await batches.reduce(
+    async (accPromise, batch, batchIndex) => {
+      const acc = await accPromise
+      const { embeddings } = await embedMany({
+        model,
+        values: batch.map((c) => c.content),
+      })
+      bar.increment()
+      // Cohere trial tier allows ~100k tokens/minute; pause between batches to avoid rate limit.
+      // Skip the delay after the last batch so ingestion finishes immediately.
+      const isLastBatch = batchIndex === batches.length - 1
+      if (!isLastBatch) {
+        await new Promise(r => setTimeout(r, 15_000))
+      }
+      return [...acc, ...embeddings]
+    },
+    Promise.resolve([] as number[][])
+  )
+
+  bar.stop()
+
+  console.log(`✅ Embedded ${allEmbeddings.length} chunks`)
+  return chunks.map((chunk, i) => ({ ...chunk, embedding: allEmbeddings[i] }))
+}
+
+if (process.argv[1] === fileURLToPath(import.meta.url)) {
+  runIngestionPipeline()
+}

@@ -1,7 +1,29 @@
 import fs from "node:fs"
 import os from "node:os"
 import path from "node:path"
-import { enrichChunksWithMetadata, loadVaultFiles, splitMarkdownDocs } from "./ingest"
+import {
+  EnrichedChunk,
+  embedChunks,
+  enrichChunksWithMetadata,
+  loadVaultFiles,
+  splitMarkdownDocs,
+} from "./ingest"
+
+vi.mock("ai", () => ({
+  embedMany: vi.fn(),
+}))
+
+import { embedMany } from "ai"
+
+const mockEmbedMany = vi.mocked(embedMany)
+
+beforeEach(() => {
+  vi.spyOn(console, "log").mockImplementation(() => {})
+})
+
+afterEach(() => {
+  vi.restoreAllMocks()
+})
 
 describe("loadVaultFiles", () => {
   let tmpDir: string
@@ -168,7 +190,8 @@ describe("splitMarkdownDocs", () => {
     const docs = [
       {
         source: "vault/rules.md",
-        content: "# Combat\nOverview.\n## Melee\nClose range.\n### Initiative\nRoll d6.",
+        content:
+          "# Combat\nOverview.\n## Melee\nClose range.\n### Initiative\nRoll d6.",
       },
     ]
 
@@ -181,17 +204,22 @@ describe("splitMarkdownDocs", () => {
   })
 
   // <- B
-  it("filters out empty chunks from back-to-back headers", () => {
+  it("filters out empty chunks when content starts with a header", () => {
+    // A document whose raw content begins with "\n## Header" produces an empty
+    // string before the first header after the regex split. The filter must
+    // remove it so no zero-length chunk reaches downstream steps.
     const docs = [
       {
         source: "vault/spells.md",
-        content: "# Fireball\n## Range\n150 feet.",
+        content: "\n## Range\n150 feet.",
       },
     ]
 
     const result = splitMarkdownDocs(docs)
 
-    expect(result.every((chunk) => chunk.content.trim().length > 0)).toBe(true)
+    expect(result.every((chunk) => chunk.content.length > 0)).toBe(true)
+    expect(result).toHaveLength(1)
+    expect(result[0].content).toBe("## Range\n150 feet.")
   })
 
   // <- B
@@ -219,7 +247,9 @@ describe("enrichChunksWithMetadata", () => {
   })
 
   it("returns one enriched chunk for a single doc", () => {
-    const chunks = [{ source: "vault/Monsters/Goblin.md", content: "Small and mean." }]
+    const chunks = [
+      { source: "vault/Monsters/Goblin.md", content: "Small and mean." },
+    ]
 
     const result = enrichChunksWithMetadata(chunks)
 
@@ -227,7 +257,9 @@ describe("enrichChunksWithMetadata", () => {
   })
 
   it("sets metadata.source to the original source path", () => {
-    const chunks = [{ source: "vault/Monsters/Goblin.md", content: "Small and mean." }]
+    const chunks = [
+      { source: "vault/Monsters/Goblin.md", content: "Small and mean." },
+    ]
 
     const result = enrichChunksWithMetadata(chunks)
 
@@ -235,7 +267,9 @@ describe("enrichChunksWithMetadata", () => {
   })
 
   it("sets metadata.title to the derived title", () => {
-    const chunks = [{ source: "vault/Monsters/Goblin.md", content: "Small and mean." }]
+    const chunks = [
+      { source: "vault/Monsters/Goblin.md", content: "Small and mean." },
+    ]
 
     const result = enrichChunksWithMetadata(chunks)
 
@@ -251,10 +285,135 @@ describe("enrichChunksWithMetadata", () => {
   })
 
   it("strips 'rules' prefix from breadcrumb titles", () => {
-    const chunks = [{ source: "vault/rules/Combat.md", content: "Roll to hit." }]
+    const chunks = [
+      { source: "vault/rules/Combat.md", content: "Roll to hit." },
+    ]
 
     const result = enrichChunksWithMetadata(chunks)
 
     expect(result[0].metadata.title).toBe("Combat")
+  })
+})
+
+describe("embedChunks", () => {
+  beforeEach(() => {
+    vi.useFakeTimers()
+  })
+
+  afterEach(() => {
+    vi.useRealTimers()
+  })
+
+  const chunk = (content: string): EnrichedChunk => ({
+    content,
+    metadata: { source: "vault/spells.md", title: "Spells" },
+  })
+
+  const mockResult = (embeddings: number[][]) => ({
+    embeddings,
+    values: [],
+    usage: { tokens: 0 },
+    warnings: [],
+  })
+
+  beforeEach(() => {
+    mockEmbedMany.mockReset()
+  })
+
+  // <- Z
+  it("returns empty array for empty input", async () => {
+    mockEmbedMany.mockResolvedValue(mockResult([]))
+
+    const result = await embedChunks([])
+
+    expect(result).toEqual([])
+  })
+
+  // <- O
+  it("returns one EmbeddedChunk for a single input chunk", async () => {
+    mockEmbedMany.mockResolvedValue(mockResult([[0.1, 0.2, 0.3]]))
+
+    const promise = embedChunks([chunk("Fireball deals 8d6 fire damage.")])
+    await vi.runAllTimersAsync()
+    const result = await promise
+
+    expect(result).toHaveLength(1)
+  })
+
+  // <- M
+  it("returns an EmbeddedChunk for every input chunk", async () => {
+    mockEmbedMany.mockResolvedValue(mockResult([[0.1], [0.2], [0.3]]))
+
+    const promise = embedChunks([
+      chunk("Fireball"),
+      chunk("Goblin"),
+      chunk("Sword"),
+    ])
+    await vi.runAllTimersAsync()
+    const result = await promise
+
+    expect(result).toHaveLength(3)
+  })
+
+  // <- B
+  it("attaches the correct embedding to each chunk by index", async () => {
+    mockEmbedMany.mockResolvedValue(
+      mockResult([
+        [0.1, 0.2],
+        [0.3, 0.4],
+        [0.5, 0.6],
+      ])
+    )
+
+    const promise = embedChunks([chunk("A"), chunk("B"), chunk("C")])
+    await vi.runAllTimersAsync()
+    const result = await promise
+
+    expect(result[0].embedding).toEqual([0.1, 0.2])
+    expect(result[1].embedding).toEqual([0.3, 0.4])
+    expect(result[2].embedding).toEqual([0.5, 0.6])
+  })
+
+  // <- I
+  it("preserves content and metadata on each returned chunk", async () => {
+    mockEmbedMany.mockResolvedValue(mockResult([[0.1, 0.2]]))
+    const input = chunk("Fireball deals 8d6 fire damage.")
+
+    const promise = embedChunks([input])
+    await vi.runAllTimersAsync()
+    const result = await promise
+
+    expect(result[0].content).toBe(input.content)
+    expect(result[0].metadata).toEqual(input.metadata)
+  })
+
+  // <- E
+  it("throws when embedMany rejects", async () => {
+    mockEmbedMany.mockRejectedValue(new Error("API error"))
+
+    const promise = embedChunks([chunk("Fireball")]).catch((e) => e)
+    await vi.runAllTimersAsync()
+    const error = await promise
+
+    expect(error).toBeInstanceOf(Error)
+    expect(error.message).toBe("API error")
+  })
+
+  // <- B: verify batching boundary — 97 chunks must produce exactly two embedMany calls
+  it("calls embedMany twice for 97 chunks (two batches of 96 and 1)", async () => {
+    // First batch: 96 embeddings, second batch: 1 embedding
+    const firstBatchEmbeddings = Array.from({ length: 96 }, (_, i) => [i * 0.1])
+    const secondBatchEmbeddings = [[9.6]]
+    mockEmbedMany
+      .mockResolvedValueOnce(mockResult(firstBatchEmbeddings))
+      .mockResolvedValueOnce(mockResult(secondBatchEmbeddings))
+
+    const chunks = Array.from({ length: 97 }, (_, i) => chunk(`chunk ${i}`))
+    const promise = embedChunks(chunks)
+    await vi.runAllTimersAsync()
+    const result = await promise
+
+    expect(mockEmbedMany).toHaveBeenCalledTimes(2)
+    expect(result).toHaveLength(97)
   })
 })
