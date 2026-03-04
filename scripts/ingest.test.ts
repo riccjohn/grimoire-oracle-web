@@ -17,6 +17,12 @@ import { embedMany } from "ai"
 
 const mockEmbedMany = vi.mocked(embedMany)
 
+vi.mock("./supabase-admin", () => ({
+  supabaseClient: {
+    from: vi.fn(),
+  },
+}))
+
 beforeEach(() => {
   vi.spyOn(console, "log").mockImplementation(() => {})
 })

@@ -1,11 +1,12 @@
 import fs from "node:fs"
-import { fileURLToPath } from "node:url"
 import path from "node:path"
-import { embedMany } from "ai"
+import { fileURLToPath } from "node:url"
 import { cohere } from "@ai-sdk/cohere"
-import ora from "ora"
+import { embedMany } from "ai"
 import cliProgress from "cli-progress"
-import { EMBEDDING_MODEL } from "@/lib/constants"
+import ora from "ora"
+import { EMBEDDING_MODEL, SUPABASE_TABLE_NAME } from "@/lib/constants"
+import { supabaseClient } from "./supabase-admin"
 
 const MAX_CHUNK_SIZE = 1000
 const EMBED_BATCH_SIZE = 96
@@ -24,10 +25,11 @@ const runIngestionPipeline = async () => {
   const docs = loadVaultFiles("./vault/")
   const chunks = splitMarkdownDocs(docs)
   const enrichedChunks = enrichChunksWithMetadata(chunks)
-  loadSpinner.succeed(`Loaded ${docs.length} files → ${enrichedChunks.length} chunks`)
-
-  // TODO: pass to storeChunks
+  loadSpinner.succeed(
+    `Loaded ${docs.length} files → ${enrichedChunks.length} chunks`
+  )
   const embeddedChunks = await embedChunks(enrichedChunks)
+  storeChunks(embeddedChunks)
 }
 
 /**
@@ -113,7 +115,9 @@ const extractTitleFromPath = (filepath: string) => {
  * @param chunks - Array of  chunks
  * @returns Array of chunks with titles added as metadata
  */
-export const enrichChunksWithMetadata = (chunks: Document[]): EnrichedChunk[] => {
+export const enrichChunksWithMetadata = (
+  chunks: Document[]
+): EnrichedChunk[] => {
   console.log("🧂 Enriching chunks with metadata")
   return chunks.map((chunk) => {
     const title = extractTitleFromPath(chunk.source)
@@ -123,8 +127,6 @@ export const enrichChunksWithMetadata = (chunks: Document[]): EnrichedChunk[] =>
     }
   })
 }
-
-
 
 /**
  * Embeds each chunk's content using the Cohere embedding model.
@@ -165,7 +167,7 @@ export const embedChunks = async (
       // Skip the delay after the last batch so ingestion finishes immediately.
       const isLastBatch = batchIndex === batches.length - 1
       if (!isLastBatch) {
-        await new Promise(r => setTimeout(r, 15_000))
+        await new Promise((r) => setTimeout(r, 15_000))
       }
       return [...acc, ...embeddings]
     },
@@ -176,6 +178,31 @@ export const embedChunks = async (
 
   console.log(`✅ Embedded ${allEmbeddings.length} chunks`)
   return chunks.map((chunk, i) => ({ ...chunk, embedding: allEmbeddings[i] }))
+}
+
+const storeChunks = async (chunks: EmbeddedChunk[]) => {
+  // Delete existing documents to prevent duplicate entries
+  // PostgREST requires a filter clause on DELETE; `.neq("id", 0)` is the conventional workaround to delete all rows.
+  const { error: supabaseClearError } = await supabaseClient
+    .from(SUPABASE_TABLE_NAME)
+    .delete()
+    .neq("id", 0)
+
+  if (supabaseClearError) {
+    throw new Error(`Failed to clear documents: ${supabaseClearError.message}`)
+  } else {
+    console.log("🗑  Cleared existing documents...")
+  }
+
+  const { error: supabaseInsertError } = await supabaseClient
+    .from(SUPABASE_TABLE_NAME)
+    .insert(chunks)
+
+  if (supabaseInsertError) {
+    throw new Error(`Failed to insert chunks: ${supabaseInsertError.message}`)
+  } else {
+    console.log(`✅ Stored ${chunks.length} chunks`)
+  }
 }
 
 if (process.argv[1] === fileURLToPath(import.meta.url)) {
