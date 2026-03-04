@@ -1,6 +1,6 @@
 # Grimoire Oracle — Web App Plan
 
-This document captures the architectural decisions and implementation plan for Grimoire Oracle, a TTRPG rule-lookup chatbot built as a Next.js web application with a LangChain RAG pipeline.
+This document captures the architectural decisions and implementation plan for Grimoire Oracle, a TTRPG rule-lookup chatbot built as a Next.js web application with a Vercel AI SDK RAG pipeline.
 
 ---
 
@@ -8,13 +8,13 @@ This document captures the architectural decisions and implementation plan for G
 
 | Layer              | Choice                                                          |
 | ------------------ | --------------------------------------------------------------- |
-| Chat LLM           | Google Gemini (`gemini-2.0-flash`)                              |
-| Embeddings         | Cohere (`embed-english-v3.0`, 1024-dim)                         |
+| Chat LLM           | Claude (`claude-haiku-4-5`) via `@ai-sdk/anthropic`             |
+| Embeddings         | Cohere (`embed-english-v3.0`, 1024-dim) via `@ai-sdk/cohere`   |
 | Vector Store       | Supabase pgvector                                               |
-| Retrieval          | `SupabaseVectorStore` (vector search via `match_documents`)     |
-| Hybrid Search      | Deferred — add `hybrid_search` RPC if retrieval quality is poor |
-| UI                 | Next.js 15 App Router                                           |
+| Retrieval          | Direct Supabase RPC (`match_documents`)                         |
+| UI                 | Next.js 16 App Router                                           |
 | Frontend streaming | Vercel AI SDK (`useChat` hook)                                  |
+| Backend streaming  | Vercel AI SDK (`streamText`)                                    |
 | API key protection | Next.js API routes (server-side)                                |
 | Deployment         | GitHub Actions → Vercel (on push to `main`)                     |
 | Ingestion trigger  | GitHub Actions manual workflow                                  |
@@ -22,17 +22,15 @@ This document captures the architectural decisions and implementation plan for G
 
 ### Stack rationale
 
-**Google Gemini** — The chat model (`gemini-2.0-flash`) uses a Google AI Studio API key, which has a genuinely free tier with no expiry and no credit card required (15 RPM, 1M tokens/day — more than sufficient for a side project). LangChain integration via `@langchain/google-genai`.
+**Claude (claude-haiku-4-5)** — Fast and cost-effective chat model via Anthropic's API. Integration via `@ai-sdk/anthropic`, which is the standard Vercel AI SDK provider for Anthropic models.
 
-**Cohere** — Embeddings use Cohere's `embed-english-v3.0` model (1024-dimensional vectors) via `@langchain/cohere`. The free trial key allows ~1000 API calls/month, each processing up to 96 texts — around 11 calls total for the full vault. This is far more practical than Google's embedding free tier (1000 single calls/day, batch endpoint unsupported). Requires a separate `COHERE_API_KEY`.
+**Cohere** — Embeddings use Cohere's `embed-english-v3.0` model (1024-dimensional vectors) via `@ai-sdk/cohere`. The free trial key allows ~1000 API calls/month, each processing up to 96 texts — around 11 calls total for the full vault.
 
-**Supabase** — A single PostgreSQL database handles semantic search via pgvector. `SupabaseVectorStore` from `@langchain/community` runs vector similarity queries against the `match_documents` RPC. Full-text hybrid search is deferred — the `hybrid_search` RPC pattern (RRF combining vector + FTS) can be added to the schema if retrieval quality needs improvement.
+**Supabase** — A single PostgreSQL database handles semantic search via pgvector. Queries run directly against the `match_documents` RPC function via the Supabase JS client — no LangChain vector store abstraction needed.
 
-**Next.js SSR** — API routes run on the server, so `GOOGLE_API_KEY` and Supabase credentials are never sent to the browser.
+**Vercel AI SDK (`ai` package)** — Used for both frontend and backend. On the frontend, the `useChat` hook handles message state, streaming text rendering, and loading indicators. On the backend, `embed` embeds the query, and `streamText` calls Claude and streams the response. `convertToModelMessages` bridges the `UIMessage` (frontend) and `ModelMessage` (LLM API) formats.
 
-**Vercel AI SDK (`ai` package)** — Used only on the frontend via the `useChat` React hook. It handles message history state, loading indicators, streaming text rendering, and form wiring — eliminating the manual `useState` + `fetch` + `ReadableStream` boilerplate you'd otherwise write in `app/page.tsx`. On the server side, `LangChainAdapter.toDataStreamResponse()` converts LangChain's output stream into the format `useChat` expects. Critically, the AI SDK's `streamText`/`generateText` functions are **not** used — LangChain stays in charge of the entire RAG pipeline. The AI SDK is purely a transport and UI convenience layer.
-
-**GitHub Actions** — Two workflows in `.github/workflows/`: a `deploy` workflow that fires automatically on push to `main` (via Vercel CLI), and an `ingest.yml` workflow that only runs when manually triggered via `workflow_dispatch`. This keeps deployment automated while preventing ingestion from running on every code change.
+**GitHub Actions** — Two workflows: `ci.yml` runs tests on every push; `ingest.yml` only runs when manually triggered via `workflow_dispatch`.
 
 ---
 
@@ -45,27 +43,29 @@ Browser
   ▼
 Next.js API Route  ←─── server-only, env vars protected here
   │
-  ├── ChatGoogleGenerativeAI (gemini-2.0-flash)
+  ├── lib/retrieval.ts
+  │     ├── @ai-sdk/cohere — embed query (embed-english-v3.0)
+  │     └── Supabase RPC — match_documents → top-K chunks
   │
-  └── SupabaseVectorStore retriever
-        │
-        └── pgvector (semantic / cosine similarity)
+  └── streamText (claude-haiku-4-5)
+        └── retrieved chunks injected via system prompt
+
+              ▲
+              │  populated by:
               │
-              └── Supabase (documents table)
-                    ▲
-                    │  populated by:
-                    │
-              GitHub Actions — ingest-vault (manual trigger)
-                    │
-              scripts/ingest.ts
-                    │
-              ├── CohereEmbeddings (embed-english-v3.0)
-              └── vault/ markdown files
+        GitHub Actions — ingest-vault (manual trigger)
+              │
+        scripts/ingest.ts
+              │
+        ├── @ai-sdk/cohere — embed chunks (embed-english-v3.0)
+        └── vault/ markdown files
 ```
 
 ### Retrieval
 
-`SupabaseVectorStore` queries the `match_documents` RPC for vector similarity search. If retrieval quality is poor (e.g. exact OSE terms like spell names aren't surfacing), the upgrade path is to add a `hybrid_search` RPC to the schema that combines vector + full-text search via Reciprocal Rank Fusion (RRF), then pass `queryName: "hybrid_search"` to the vector store.
+`lib/retrieval.ts` embeds the user query with Cohere, then calls the `match_documents` Supabase RPC for cosine similarity search. The top-K chunks are joined into a single string and injected into the system prompt for Claude.
+
+The `match_documents` RPC performs vector similarity search. If retrieval quality needs improvement (e.g. exact OSE terms aren't surfacing), the upgrade path is a `hybrid_search` RPC that combines vector + full-text search via Reciprocal Rank Fusion (RRF).
 
 ---
 
@@ -80,12 +80,17 @@ grimoire-oracle-web/
 │       └── chat/
 │           └── route.ts      # Streaming API route (server-only)
 ├── lib/
-│   ├── oracle-logic.ts       # RAG pipeline (server-only)
-│   └── supabase-client.ts    # Supabase client initialization
+│   ├── retrieval.ts          # Embed query + fetch context from Supabase
+│   ├── constants.ts          # Model names, Supabase config, tuning params
+│   └── supabase-client.ts    # Supabase client (anon key)
 ├── scripts/
-│   └── ingest.ts             # Ingestion script → Supabase
-├── vault/                    # TTRPG markdown files (or git submodule)
+│   ├── ingest.ts             # Ingestion pipeline → Supabase
+│   └── ingest.test.ts        # Vitest unit tests for ingestion pipeline
+├── supabase/
+│   └── schema.sql            # Table schema + RLS policy + match_documents RPC
+├── vault/                    # TTRPG markdown files (git submodule)
 ├── .github/workflows/
+│   ├── ci.yml                # Run tests on every push
 │   └── ingest.yml            # Manual ingestion trigger (workflow_dispatch)
 ├── .env.local                # Local dev env vars (gitignored)
 ├── .env.example              # Template for required env vars
@@ -101,17 +106,12 @@ grimoire-oracle-web/
 # .env.local (never commit this file)
 
 # Runtime — Next.js app (also set in Vercel project settings)
-GOOGLE_API_KEY=              # Google AI Studio — chat LLM only (gemini-2.0-flash)
-COHERE_API_KEY=              # Cohere — embeddings only (embed-english-v3.0)
+ANTHROPIC_API_KEY=           # Anthropic — chat LLM (claude-haiku-4-5)
+COHERE_API_KEY=              # Cohere — embeddings (embed-english-v3.0)
 SUPABASE_URL=                # Found in Supabase project settings
 SUPABASE_ANON_KEY=           # Safe for read queries (RLS enforced)
 
-# Observability — Next.js app (also set in Vercel project settings)
-LANGCHAIN_TRACING_V2=true
-LANGCHAIN_API_KEY=           # From smith.langchain.com
-LANGCHAIN_PROJECT=grimoire-oracle-web
-
-# Ingestion only — never set in Vercel; lives only in GitLab CI variables
+# Ingestion only — never set in Vercel
 SUPABASE_SERVICE_ROLE_KEY=   # Write access — bypasses RLS
 ```
 
@@ -119,26 +119,25 @@ SUPABASE_SERVICE_ROLE_KEY=   # Write access — bypasses RLS
 
 | Variable                    | `.env.local`       | Vercel settings | GitHub Actions |
 | --------------------------- | ------------------ | --------------- | -------------- |
-| `GOOGLE_API_KEY`            | Yes                | Yes             | No             |
+| `ANTHROPIC_API_KEY`         | Yes                | Yes             | No             |
 | `COHERE_API_KEY`            | Yes                | No              | Yes (ingest)   |
 | `SUPABASE_URL`              | Yes                | Yes             | No             |
 | `SUPABASE_ANON_KEY`         | Yes                | Yes             | No             |
-| `LANGCHAIN_TRACING_V2`      | Yes                | Yes             | No             |
-| `LANGCHAIN_API_KEY`         | Yes                | Yes             | No             |
-| `LANGCHAIN_PROJECT`         | Yes                | Yes             | No             |
 | `SUPABASE_SERVICE_ROLE_KEY` | Yes (local ingest) | **Never**       | Yes            |
-| `VERCEL_TOKEN`              | No                 | No              | Yes            |
 
-`SUPABASE_SERVICE_ROLE_KEY` bypasses Row Level Security entirely — if it were set in Vercel, a bug in the Next.js app could expose write access to the database. Keep it out of Vercel.
+`SUPABASE_SERVICE_ROLE_KEY` bypasses Row Level Security entirely — keep it out of Vercel. The deployed app uses `SUPABASE_ANON_KEY`, scoped to read-only queries via RLS.
 
 ---
 
 ## GitHub Actions CI/CD
 
-One workflow in `.github/workflows/ingest.yml` handles manual ingestion. It only runs when triggered via `workflow_dispatch` (Actions tab → "Ingest vault" → "Run workflow") — never automatically.
+### `ci.yml` — runs on every push
+Runs `pnpm test` (Vitest) to catch regressions in the ingestion pipeline.
+
+### `ingest.yml` — manual only
+Only runs when triggered via `workflow_dispatch` (Actions tab → "Ingest vault" → "Run workflow").
 
 ```yaml
-# .github/workflows/ingest.yml
 name: Ingest vault
 
 on:
@@ -149,6 +148,8 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          submodules: true
       - uses: pnpm/action-setup@v4
       - uses: actions/setup-node@v4
         with:
@@ -157,7 +158,7 @@ jobs:
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
       - name: Run ingestion pipeline
-        run: pnpm tsx scripts/ingest.ts
+        run: pnpm ingest
         env:
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
           SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
@@ -172,17 +173,15 @@ jobs:
 | `SUPABASE_SERVICE_ROLE_KEY` | Bypasses RLS — keep out of Vercel |
 | `COHERE_API_KEY`            | Embedding model credentials       |
 
-`SUPABASE_SERVICE_ROLE_KEY` bypasses Row Level Security — keep it out of Vercel entirely. The deployed Next.js app uses `SUPABASE_ANON_KEY` (set in Vercel project settings), scoped to read-only queries via RLS.
-
 ---
 
 ## Implementation Phases
 
-### Phase 1 — Supabase setup
+### Phase 1 — Supabase setup ✓
 
 1. Create a new Supabase project
 2. Enable the `pgvector` extension: `Database → Extensions → vector`
-3. LangChain's `SupabaseVectorStore` will auto-create the `documents` table on first ingest — but you can also create it manually to understand the schema:
+3. Run `supabase/schema.sql` to create the `documents` table, RLS policy, and `match_documents` RPC:
    ```sql
    create table documents (
      id bigserial primary key,
@@ -192,140 +191,42 @@ jobs:
      content_hash text unique
    );
    ```
-4. Create the hybrid search SQL function (see [Supabase LangChain docs](https://supabase.com/docs/guides/ai/langchain))
 
-### Phase 2 — Ingestion (`scripts/ingest.ts`)
+> **RLS note:** RLS must be enabled on the `documents` table with a public read policy, otherwise the anon key returns empty results silently. The policy is defined in `schema.sql` and must come after `create table`.
 
-The ingestion script reads markdown files from `vault/`, chunks and enriches them, embeds each chunk with `CohereEmbeddings`, and writes everything to the Supabase `documents` table via `SupabaseVectorStore.fromDocuments()`.
+### Phase 2 — Ingestion pipeline ✓
 
-Key functions to implement:
+`scripts/ingest.ts` reads markdown files from `vault/`, chunks and enriches them, embeds each chunk with Cohere, and upserts to the Supabase `documents` table.
 
-- `splitDocsIntoChunks` — load and chunk markdown files
-- `mergeSmallChunks` — combine fragments below a minimum token threshold
+Key functions:
+- `splitDocsIntoChunks` — load and chunk markdown files using `MarkdownTextSplitter`
 - `enrichChunksWithMetadata` — attach source file, section title, etc.
-- `SupabaseVectorStore.fromDocuments()` — embed and store in one call
+- `embedChunks` — batch-embed with `@ai-sdk/cohere`, progress bar, ~96 texts/call
+- `storeChunks` — upsert to Supabase with `content_hash` deduplication
 
-### Phase 3 — Oracle logic (`lib/oracle-logic.ts`)
+> **Chunking note:** Do not use a `mergeSmallChunks` step — it dilutes embeddings by combining unrelated sections. Small focused chunks (even 1 sentence) produce better retrieval than merged multi-topic chunks.
 
-The RAG pipeline uses three LangChain primitives composed together:
+### Phase 3 — Retrieval (`lib/retrieval.ts`) ✓
 
-- `createHistoryAwareRetriever` — rephrases follow-up questions using chat history before running retrieval
-- `createStuffDocumentsChain` — stuffs retrieved documents into the prompt context
-- `createRetrievalChain` — orchestrates the full pipeline end-to-end
+Embeds the user query, calls `match_documents`, and returns a joined context string for injection into the system prompt. Tuning constants (`RETRIEVAL_K`, `EMBEDDING_MODEL`) live in `lib/constants.ts`.
 
-The retriever is `SupabaseVectorStore` calling the `match_documents` RPC for vector similarity search.
+### Phase 4 — Next.js chat route ✓
 
-Mark the module server-only by keeping it in `lib/` and only importing it from API routes — never from client components.
+`app/api/chat/route.ts` — validates the request body, extracts the query text from the last message's parts, calls `retrieveContext`, builds a system prompt with the retrieved context, then calls `streamText` and returns `result.toUIMessageStreamResponse()`.
 
-### Phase 4 — Next.js UI
+`app/page.tsx` — chat interface built with the `useChat` hook. Sends messages via `sendMessage`, displays streaming responses.
 
-- `app/api/chat/route.ts` — Streaming POST route. Calls `setupOracle()`, invokes `chain.stream()`, and uses `LangChainAdapter` to return a stream in the format `useChat` expects.
-- `app/page.tsx` — Chat interface built with the `useChat` hook. No manual streaming, state management, or fetch wiring needed.
+### Phase 5 — GitHub Actions CI/CD ✓
 
-API route skeleton:
-
-```typescript
-// app/api/chat/route.ts
-import { LangChainAdapter } from 'ai';
-import { setupOracle } from '@/lib/oracle-logic';
-import { AIMessage, HumanMessage } from '@langchain/core/messages';
-import type { Message } from 'ai';
-
-export async function POST(req: Request) {
-	const { messages }: { messages: Message[] } = await req.json();
-
-	const chatHistory = messages
-		.slice(0, -1)
-		.map((m) =>
-			m.role === 'user'
-				? new HumanMessage(m.content)
-				: new AIMessage(m.content),
-		);
-	const input = messages.at(-1)?.content ?? '';
-
-	const chain = await setupOracle();
-	const stream = await chain.stream({ input, chat_history: chatHistory });
-
-	// LangChainAdapter bridges LangChain's output stream to the AI SDK data stream format
-	return LangChainAdapter.toDataStreamResponse(stream, {
-		inputKey: 'answer', // tells the adapter which key in the chunk holds the text
-	});
-}
-```
-
-Frontend skeleton:
-
-```typescript
-// app/page.tsx — AI SDK v6 API
-'use client';
-import { useChat } from '@ai-sdk/react';
-
-export default function Page() {
-  // v6 API — old fields (input, handleInputChange, handleSubmit, isLoading) are gone
-  const { messages, sendMessage, status } = useChat({ api: '/api/chat' });
-
-  return (
-    <div>
-      {messages.map((m) => (
-        <div key={m.id}>
-          <strong>{m.role === 'user' ? '❯' : '🧙'}</strong>{' '}
-          {m.parts[0].type === 'text' ? m.parts[0].text : ''}
-        </div>
-      ))}
-      {status === 'streaming' && <p>Consulting the grimoire...</p>}
-    </div>
-  );
-}
-```
-
-### Phase 5 — GitHub Actions CI/CD
-
-- Add `.github/workflows/ingest.yml` with `workflow_dispatch` trigger
-- Add `SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY`, and `COHERE_API_KEY` as repository secrets (Settings → Secrets and variables → Actions)
-- Manually trigger the workflow from the Actions tab → confirm ingestion runs and rows appear in Supabase
+`ci.yml` runs Vitest on every push. `ingest.yml` runs the ingestion pipeline on manual trigger.
 
 ---
 
 ## Observability
 
-### LLM tracing with LangSmith
+`DEBUG=true` in `.env.local` enables server-side logging of the query, retrieved document count, and the first 120 characters of each retrieved chunk. This is the primary tool for debugging RAG quality locally.
 
-LangSmith is LangChain's observability platform. Enabling it requires zero code changes — just three environment variables. Every chain invocation is automatically traced.
-
-**What it captures for each query:**
-
-- The original user input
-- The rephrased search query generated by `createHistoryAwareRetriever`
-- The exact documents retrieved by `SupabaseVectorStore` (with scores)
-- The full assembled prompt sent to Gemini
-- The model response and token counts
-- End-to-end latency per step
-
-This is the primary tool for debugging RAG quality issues. Failures in RAG systems fall into two buckets:
-
-1. **Retrieval failure** — the right documents weren't surfaced (fix: tune chunking, embedding model, or hybrid search weights)
-2. **Generation failure** — the right documents were retrieved but Gemini synthesized a bad answer (fix: tune the system prompt)
-
-LangSmith lets you distinguish between them by inspecting actual traces — you can see exactly which vault chunks were passed as `{context}` for any given query.
-
-**Free tier:** 100K traces/month — more than enough for a personal project.
-
-**Setup:** Add to `.env.local` and Vercel project settings:
-
-```bash
-LANGCHAIN_TRACING_V2=true
-LANGCHAIN_API_KEY=           # From smith.langchain.com
-LANGCHAIN_PROJECT=grimoire-oracle-web
-```
-
-No code changes required. LangChain picks these up automatically.
-
-### Vercel built-ins (zero setup)
-
-Vercel provides request logs and basic analytics on the free plan with no configuration:
-
-- **Functions tab** — real-time logs for API route invocations, including cold start times
-- **Analytics** — page view counts (enable in Vercel dashboard, one click)
+Vercel's Functions tab provides real-time logs for production API route invocations.
 
 ---
 
@@ -333,23 +234,21 @@ Vercel provides request logs and basic analytics on the free plan with no config
 
 ```bash
 pnpm add next react react-dom
-pnpm add ai                          # Vercel AI SDK — useChat hook + LangChainAdapter
-pnpm add @langchain/google-genai @langchain/cohere @langchain/community @langchain/core @langchain/textsplitters
+pnpm add ai @ai-sdk/anthropic @ai-sdk/cohere @ai-sdk/react
 pnpm add @supabase/supabase-js
-pnpm add -D typescript @types/node @types/react tsx
+pnpm add -D typescript @types/node @types/react tsx vitest
 ```
-
-`@langchain/google-genai` covers `ChatGoogleGenerativeAI` for the chat LLM. `@langchain/cohere` provides `CohereEmbeddings` for the embedding pipeline — requires a separate `COHERE_API_KEY`. The Supabase vector store comes via `@langchain/community`. `@ai-sdk/google` is deliberately **not** installed: the AI SDK's provider packages are only needed if you use `streamText`/`generateText`, which you're not — LangChain handles all LLM and embedding calls.
 
 ---
 
 ## Verification Checklist
 
-- [ ] Run `pnpm tsx scripts/ingest.ts` locally → confirm rows appear in Supabase `documents` table
+- [ ] Run `pnpm ingest` locally → confirm rows appear in Supabase `documents` table
 - [ ] Run `pnpm dev` → open `http://localhost:3000` → ask a rules question → confirm streaming response
-- [ ] Open LangSmith → confirm a trace appeared → inspect the retrieved documents and rephrased query
-- [ ] Open browser DevTools → Network tab → inspect the `/api/chat` request → confirm no API keys in request headers or response body
+- [ ] Ask an out-of-scope question → confirm "The Oracle did not return any results" response
+- [ ] Set `DEBUG=true` → confirm retrieved chunks appear in server logs
+- [ ] Open browser DevTools → Network tab → confirm no API keys in request headers or response body
 - [ ] Push to `main` → confirm Vercel deployment succeeds
-- [ ] Trigger the `Ingest vault` workflow manually in GitHub Actions → confirm it completes and rows appear in Supabase `documents` table
+- [ ] Trigger the `Ingest vault` workflow manually in GitHub Actions → confirm it completes
 - [ ] Confirm `SUPABASE_SERVICE_ROLE_KEY` is NOT present in Vercel project environment variables
 - [ ] Visit the production Vercel URL → confirm streaming chat works end-to-end
