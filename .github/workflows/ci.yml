@@ -23,3 +23,10 @@ jobs:
 
       - name: Run tests
         run: pnpm test
+
+      - name: Retrieval eval
+        run: pnpm tsx scripts/eval-retrieval.ts
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_ANON_KEY: ${{ secrets.SUPABASE_ANON_KEY }}
+          COHERE_API_KEY: ${{ secrets.COHERE_API_KEY }}

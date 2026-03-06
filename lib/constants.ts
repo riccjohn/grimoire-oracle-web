@@ -4,6 +4,7 @@ export const EMBEDDING_MODEL = "embed-english-v3.0"
 export const CHATBOT_MODEL = "claude-haiku-4-5"
 /** Number of document chunks to retrieve from the vector store per query. */
 export const RETRIEVAL_K = 10
+export const RECALL_K_THRESHOLD = 0.8
 
 export const DEBUG = process.env.DEBUG === "true"
 export const CHATBOT_ENABLED = process.env.CHATBOT_ENABLED !== "false"
