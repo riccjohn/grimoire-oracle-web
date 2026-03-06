@@ -8,11 +8,21 @@ import {
 } from "@/lib/constants"
 import { supabaseClient } from "@/lib/supabase-client"
 
-interface DocumentMatch {
+export interface DocumentMatch {
   content: string
+  metadata: {
+    source: string
+    title: string
+  }
+  similarity: number
 }
 
 const retrieveContext = async (query: string) => {
+  const rows = await retrieveRawChunks(query)
+  return rows.map((row) => row.content).join("\n\n")
+}
+
+const retrieveRawChunks = async (query: string) => {
   const model = cohere.embeddingModel(EMBEDDING_MODEL)
   const { embedding } = await embed({ model, value: query })
 
@@ -34,7 +44,7 @@ const retrieveContext = async (query: string) => {
     })
   }
 
-  return rows.data.map((row: DocumentMatch) => row.content).join("\n\n")
+  return rows.data as DocumentMatch[]
 }
 
-export { retrieveContext }
+export { retrieveContext, retrieveRawChunks }

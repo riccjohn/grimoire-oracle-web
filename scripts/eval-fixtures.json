@@ -1,0 +1,62 @@
+[
+  {
+    "question": "What armor can a Magic-User wear?",
+    "expectedChunkSubstring": "Magic-users can only use daggers and cannot use shields or wear any armor",
+    "source": "vault/2. Classes/6. Magic-User.md"
+  },
+  {
+    "question": "What is the hit die for a Fighter?",
+    "expectedChunkSubstring": "Hit Dice        | 1d8",
+    "source": "vault/2. Classes/4. Fighter.md"
+  },
+  {
+    "question": "What weapons can a Magic-User use?",
+    "expectedChunkSubstring": "Weapons         | Dagger",
+    "source": "vault/2. Classes/6. Magic-User.md"
+  },
+  {
+    "question": "How much does chainmail cost and what AC does it provide?",
+    "expectedChunkSubstring": "Chainmail  |  5 [14]  |    40",
+    "source": "vault/3. Equipment & Services/3. Weapons and Armor.md"
+  },
+  {
+    "question": "What bonus does a Thief get when attacking from behind?",
+    "expectedChunkSubstring": "a thief receives a +4 bonus to hit and doubles any damage dealt",
+    "source": "vault/2. Classes/7. Thief.md"
+  },
+  {
+    "question": "What does a Fireball spell do?",
+    "expectedChunkSubstring": "detonates in a 20’ radius sphere.",
+    "source": "vault/4. Magic/Magic-User Spells/3 - Fireball.md"
+  },
+  {
+    "question": "What is the effect of a high Charisma score on retainers?",
+    "expectedChunkSubstring": "Max # of retainers",
+    "source": "vault/1. Characters/3. Ability Scores.md"
+  },
+  {
+    "question": "What level does a Fighter need to reach to build a stronghold?",
+    "expectedChunkSubstring": "Any time a fighter wishes (and has sufficient money), they can build a castle or stronghold",
+    "source": "vault/2. Classes/4. Fighter.md"
+  },
+  {
+    "question": "What is the open locks chance for a level 1 Thief?",
+    "expectedChunkSubstring": "|   1   |  87  |  10  | 1–2  |  10  |  20  |  15  |  20  |",
+    "source": "vault/2. Classes/7. Thief.md"
+  },
+  {
+    "question": "What saving throw modifier does Wisdom affect?",
+    "expectedChunkSubstring": "Magic saves:** Is applied to saving throws",
+    "source": "vault/1. Characters/3. Ability Scores.md"
+  },
+  {
+    "question": "How much damage does PC take from falling 30'?",
+    "expectedChunkSubstring": "Falling from a height onto a hard surface inflicts 1d6 damage per 10’ fallen.",
+    "source": "vault/5. Adventures/4. Hazards and Challenges.md"
+  },
+  {
+    "question": "What's the cost of plate armor?",
+    "expectedChunkSubstring": "Plate mail |  3 [16]  |    60",
+    "source": "vault/3. Equipment & Services/3. Weapons and Armor.md"
+  }
+]
