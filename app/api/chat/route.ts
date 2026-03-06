@@ -23,7 +23,11 @@ export const POST = async (req: Request) => {
     const stream = createUIMessageStream({
       execute: ({ writer }) => {
         writer.write({ type: "text-start", id })
-        writer.write({ type: "text-delta", id, delta: "The Oracle is currently offline." })
+        writer.write({
+          type: "text-delta",
+          id,
+          delta: "The Oracle is currently offline.",
+        })
         writer.write({ type: "text-end", id })
       },
     })
