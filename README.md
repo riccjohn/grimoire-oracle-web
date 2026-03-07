@@ -66,14 +66,16 @@ Open [http://localhost:3000](http://localhost:3000).
 
 ## Scripts
 
-| Command        | Description                          |
-| -------------- | ------------------------------------ |
-| `pnpm dev`     | Start dev server                     |
-| `pnpm build`   | Production build                     |
-| `pnpm test`    | Run Vitest unit tests                |
-| `pnpm ingest`  | Run ingestion pipeline               |
-| `pnpm lint`    | ESLint                               |
-| `pnpm format`  | Biome formatter                      |
+| Command                  | Description                                              |
+| ------------------------ | -------------------------------------------------------- |
+| `pnpm dev`               | Start dev server                                         |
+| `pnpm build`             | Production build                                         |
+| `pnpm test`              | Run Vitest unit tests                                    |
+| `pnpm ingest`            | Run ingestion pipeline                                   |
+| `pnpm eval`              | Run retrieval evaluation (Recall@K)                      |
+| `pnpm genSupabaseTypes`  | Regenerate `supabase/database.types.ts` from live schema (run after schema changes) |
+| `pnpm lint`              | ESLint                                                   |
+| `pnpm format`            | Biome formatter                                          |
 
 ## Disabling the chatbot
 
