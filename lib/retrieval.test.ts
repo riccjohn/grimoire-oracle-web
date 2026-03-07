@@ -49,11 +49,13 @@ describe("retrieval", () => {
       mockRpc.mockResolvedValue({
         data: [
           {
+            id: 1,
             content: "chunk one",
             metadata: { source: "a.md", title: "A" },
             similarity: 0.9,
           },
           {
+            id: 2,
             content: "chunk two",
             metadata: { source: "b.md", title: "B" },
             similarity: 0.8,

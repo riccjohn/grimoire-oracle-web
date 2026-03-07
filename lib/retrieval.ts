@@ -7,15 +7,10 @@ import {
   SUPABASE_MATCH_DOCUMENTS_FUNCTION,
 } from "@/lib/constants"
 import { supabaseClient } from "@/lib/supabase-client"
+import type { Database } from "@/supabase/database"
 
-export interface DocumentMatch {
-  content: string
-  metadata: {
-    source: string
-    title: string
-  }
-  similarity: number
-}
+export type DocumentMatch =
+  Database["public"]["Functions"]["match_documents"]["Returns"][number]
 
 const retrieveContext = async (query: string) => {
   const rows = await retrieveRawChunks(query)
@@ -44,7 +39,7 @@ const retrieveRawChunks = async (query: string) => {
     })
   }
 
-  return rows.data as DocumentMatch[]
+  return rows.data
 }
 
 export { retrieveContext, retrieveRawChunks }
