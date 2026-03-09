@@ -8,6 +8,7 @@ vi.mock("@/lib/supabase-client", () => ({
 describe("eval-retrieval", () => {
   describe("checkHit", () => {
     const makeChunk = (content: string) => ({
+      id: 1,
       content,
       metadata: { source: "test.md", title: "Test" },
       similarity: 0.9,

@@ -1,4 +1,5 @@
 import { createClient } from "@supabase/supabase-js"
+import type { Database } from "@/supabase/database"
 
 const supabaseUrl = process.env.SUPABASE_URL
 const supabaseKey = process.env.SUPABASE_ANON_KEY
@@ -19,4 +20,4 @@ if (!supabaseUrl || !supabaseKey) {
   )
 }
 
-export const supabaseClient = createClient(supabaseUrl, supabaseKey)
+export const supabaseClient = createClient<Database>(supabaseUrl, supabaseKey)

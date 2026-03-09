@@ -11,7 +11,8 @@
     "lint": "eslint .",
     "format": "biome check --write .",
     "ingest": "tsx --env-file=.env.local scripts/ingest.ts",
-    "eval": "tsx --env-file=.env.local scripts/eval-retrieval.ts"
+    "eval": "tsx --env-file=.env.local scripts/eval-retrieval.ts",
+    "genSupabaseTypes": "tsx --env-file=.env.local scripts/generateSupabaseTypes.ts"
   },
   "dependencies": {
     "@ai-sdk/anthropic": "^3.0.54",
@@ -42,6 +43,7 @@
     "eslint-config-next": "16.1.6",
     "jsdom": "^28.1.0",
     "lefthook": "^2.1.2",
+    "supabase": "^2.77.0",
     "tailwindcss": "^4.2.1",
     "tsx": "^4.21.0",
     "typescript": "^5.9.3",
