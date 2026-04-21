@@ -9,6 +9,7 @@ import { EMBEDDING_MODEL, SUPABASE_TABLE_NAME } from "@/lib/constants"
 import { supabaseClient } from "./supabase-admin"
 
 const MAX_CHUNK_SIZE = 1000
+export const CHUNK_OVERLAP = 150
 const EMBED_BATCH_SIZE = 96
 
 export type Document = { source: string; content: string }
@@ -98,11 +99,12 @@ export const splitMarkdownDocs = (documents: Document[]) => {
  * @param content - Text content to split.
  * @returns A single-element array if the content fits, otherwise an array of slices.
  */
-const splitLargeChunks = (source: string, content: string) => {
+export const splitLargeChunks = (source: string, content: string) => {
   if (content.length <= MAX_CHUNK_SIZE) return [{ source, content }]
 
   const slices: Document[] = []
-  for (let i = 0; i < content.length; i += MAX_CHUNK_SIZE) {
+  const step = MAX_CHUNK_SIZE - CHUNK_OVERLAP
+  for (let i = 0; i < content.length; i += step) {
     slices.push({ source, content: content.slice(i, i + MAX_CHUNK_SIZE) })
   }
   return slices
