@@ -1,0 +1,15 @@
+{
+  "hooks": {
+    "PostToolUse": [
+      {
+        "matcher": "Edit|Write",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "if echo \"$CLAUDE_TOOL_INPUT\" | grep -qE '\\.(ts|tsx)\"'; then pnpm tsc --noEmit 2>&1 | head -30; fi"
+          }
+        ]
+      }
+    ]
+  }
+}
