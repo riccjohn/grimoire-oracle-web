@@ -58,5 +58,35 @@
     "question": "What's the cost of plate armor?",
     "expectedChunkSubstring": "Plate mail |  3 [16]  |    60",
     "source": "vault/3. Equipment & Services/3. Weapons and Armor.md"
+  },
+  {
+    "question": "How much damage does a sword do?",
+    "expectedChunkSubstring": "Sword                                                        |    10     |       60       |  1d8",
+    "source": "vault/3. Equipment & Services/3. Weapons and Armor.md"
+  },
+  {
+    "question": "What is the melee attack modifier for a character with Strength 3?",
+    "expectedChunkSubstring": "|   3   |  -3   |   1-in-6   |",
+    "source": "vault/1. Characters/3. Ability Scores.md"
+  },
+  {
+    "question": "What AC modifier does a Dexterity score of 16 give?",
+    "expectedChunkSubstring": "| 16–17 |  +2  |   +2    |     +1     |",
+    "source": "vault/1. Characters/3. Ability Scores.md"
+  },
+  {
+    "question": "How much does a lance cost?",
+    "expectedChunkSubstring": "| Lance                                                        |     5     |",
+    "source": "vault/3. Equipment & Services/3. Weapons and Armor.md"
+  },
+  {
+    "question": "What is the movement rate of a riding horse?",
+    "expectedChunkSubstring": "| Horse (riding) |      75      |      48       |  240' (80')   |",
+    "source": "vault/3. Equipment & Services/4. Mounts.md"
+  },
+  {
+    "question": "What percentage chance does a level 7 thief have to climb sheer surfaces?",
+    "expectedChunkSubstring": "|   7   |  93  |  50  | 1–4  |  45  |  55  |  55  |  55  |",
+    "source": "vault/2. Classes/7. Thief.md"
   }
 ]
