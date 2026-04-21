@@ -2,12 +2,10 @@ import fs from "node:fs"
 import os from "node:os"
 import path from "node:path"
 import {
-  CHUNK_OVERLAP,
   EnrichedChunk,
   embedChunks,
   enrichChunksWithMetadata,
   loadVaultFiles,
-  splitLargeChunks,
   splitMarkdownDocs,
 } from "./ingest"
 
@@ -300,57 +298,6 @@ describe("enrichChunksWithMetadata", () => {
     const result = enrichChunksWithMetadata(chunks)
 
     expect(result[0].metadata.title).toBe("Combat")
-  })
-})
-
-describe("splitLargeChunks", () => {
-  const source = "vault/spells.md"
-
-  // 1. Short content returns single-element array unchanged
-  it("returns a single chunk when content is within MAX_CHUNK_SIZE", () => {
-    const content = "x".repeat(999)
-
-    const result = splitLargeChunks(source, content)
-
-    expect(result).toHaveLength(1)
-    expect(result[0].content).toBe(content)
-    expect(result[0].source).toBe(source)
-  })
-
-  // 2. Long content returns multiple slices
-  it("returns multiple slices when content exceeds MAX_CHUNK_SIZE", () => {
-    const content = "x".repeat(2001)
-
-    const result = splitLargeChunks(source, content)
-
-    expect(result.length).toBeGreaterThan(1)
-  })
-
-  // 3. No slice exceeds MAX_CHUNK_SIZE chars
-  it("no slice exceeds MAX_CHUNK_SIZE (1000) chars", () => {
-    const content = "a".repeat(3500)
-
-    const result = splitLargeChunks(source, content)
-
-    expect(result.every((chunk) => chunk.content.length <= 1000)).toBe(true)
-  })
-
-  // 4. Adjacent slices overlap by CHUNK_OVERLAP chars
-  it("adjacent slices overlap by CHUNK_OVERLAP chars", () => {
-    // 1100-char string guarantees exactly two slices
-    const content = "abcdefghij".repeat(110) // 1100 chars
-
-    const result = splitLargeChunks(source, content)
-
-    expect(result.length).toBeGreaterThanOrEqual(2)
-    const tailOfFirst = result[0].content.slice(-CHUNK_OVERLAP)
-    const headOfSecond = result[1].content.slice(0, CHUNK_OVERLAP)
-    expect(headOfSecond).toBe(tailOfFirst)
-  })
-
-  // 5. CHUNK_OVERLAP equals 150
-  it("CHUNK_OVERLAP is 150", () => {
-    expect(CHUNK_OVERLAP).toBe(150)
   })
 })
 
