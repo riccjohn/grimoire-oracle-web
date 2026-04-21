@@ -352,6 +352,31 @@ describe("splitLargeChunks", () => {
   it("CHUNK_OVERLAP is 150", () => {
     expect(CHUNK_OVERLAP).toBe(150)
   })
+
+  // 6. Sub-slices get the section heading prepended
+  it("prefixes sub-slices with the section heading when content starts with a heading", () => {
+    const heading = "## Weapons"
+    const body = "a".repeat(1500)
+    const content = `${heading}\n${body}`
+
+    const result = splitLargeChunks(source, content)
+
+    expect(result.length).toBeGreaterThan(1)
+    expect(result[0].content.startsWith(heading)).toBe(true)
+    for (const slice of result.slice(1)) {
+      expect(slice.content.startsWith(`${heading}\n`)).toBe(true)
+    }
+  })
+
+  // 7. No prefix added when content has no heading
+  it("does not prefix sub-slices when content has no markdown heading", () => {
+    const content = "x".repeat(1100)
+
+    const result = splitLargeChunks(source, content)
+
+    expect(result.length).toBeGreaterThan(1)
+    expect(result[1].content.startsWith("x")).toBe(true)
+  })
 })
 
 describe("embedChunks", () => {
