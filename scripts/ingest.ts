@@ -102,16 +102,10 @@ export const splitMarkdownDocs = (documents: Document[]) => {
 export const splitLargeChunks = (source: string, content: string) => {
   if (content.length <= MAX_CHUNK_SIZE) return [{ source, content }]
 
-  const firstLine = content.split("\n")[0]
-  const heading = firstLine.match(/^#{1,6} /) ? firstLine : null
   const slices: Document[] = []
   const step = MAX_CHUNK_SIZE - CHUNK_OVERLAP
   for (let i = 0; i < content.length; i += step) {
-    const slice = content.slice(i, i + MAX_CHUNK_SIZE)
-    slices.push({
-      source,
-      content: i > 0 && heading ? `${heading}\n${slice}` : slice,
-    })
+    slices.push({ source, content: content.slice(i, i + MAX_CHUNK_SIZE) })
   }
   return slices
 }
