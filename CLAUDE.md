@@ -30,6 +30,13 @@ Plans are found in `docs/plans`
 - `components/` — React only; no direct API calls (use `useChat` hook from AI SDK)
 - `app/api/` — Next.js route handlers; keep thin — delegate logic to `lib/`
 
+## Setup
+
+Pre-commit hooks require gitleaks for secret scanning:
+```bash
+brew install gitleaks
+```
+
 ## Commands
 
 ```bash
