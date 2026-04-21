@@ -67,6 +67,31 @@ describe("retrieval", () => {
         statusText: "OK",
       })
       const result = await retrieveContext("test query")
+      expect(result).toBe("[A]\nchunk one\n\n[B]\nchunk two")
+    })
+
+    it("omits title prefix when metadata.title is absent", async () => {
+      mockRpc.mockResolvedValue({
+        data: [
+          {
+            id: 1,
+            content: "chunk one",
+            metadata: { source: "a.md", title: null },
+            similarity: 0.9,
+          },
+          {
+            id: 2,
+            content: "chunk two",
+            metadata: { source: "b.md" },
+            similarity: 0.8,
+          },
+        ],
+        error: null,
+        count: null,
+        status: 200,
+        statusText: "OK",
+      })
+      const result = await retrieveContext("test query")
       expect(result).toBe("chunk one\n\nchunk two")
     })
   })

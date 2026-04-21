@@ -12,9 +12,22 @@ import type { Database } from "@/supabase/database"
 export type DocumentMatch =
   Database["public"]["Functions"]["match_documents"]["Returns"][number]
 
+const getTitle = (metadata: DocumentMatch["metadata"]): string | undefined => {
+  if (metadata && typeof metadata === "object" && !Array.isArray(metadata)) {
+    const title = metadata["title"]
+    return typeof title === "string" ? title : undefined
+  }
+  return undefined
+}
+
 const retrieveContext = async (query: string) => {
   const rows = await retrieveRawChunks(query)
-  return rows.map((row) => row.content).join("\n\n")
+  return rows
+    .map((row) => {
+      const title = getTitle(row.metadata)
+      return title ? `[${title}]\n${row.content}` : row.content
+    })
+    .join("\n\n")
 }
 
 const retrieveRawChunks = async (query: string) => {
