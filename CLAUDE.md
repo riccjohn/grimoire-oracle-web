@@ -45,7 +45,18 @@ pnpm lint          # run ESLint
 pnpm tsc --noEmit  # type check (no output files)
 pnpm dev           # start Next.js dev server
 pnpm ingest        # run ingestion pipeline (requires .env.local)
+pnpm eval          # run retrieval eval against live Supabase (requires .env.local with Supabase + Cohere creds) — do not run in agents
 ```
+
+## Evaluation system
+
+`scripts/eval-retrieval.ts` is a recall@K gate that runs 12 fixture queries against live Supabase.
+
+- Output per fixture: `PASS [rank N] — question` or `FAIL [not found] — question`
+- Gate: recall ≥ 0.80 (`RECALL_K_THRESHOLD`) — exits non-zero if below threshold
+- Exports: `checkHit`, `findRank`, `computeRecall`, `isPassing`
+- `findRank(chunks, substring)` returns 1-based rank or -1 if not found
+- Requires live Supabase + Cohere credentials — cannot be run in CI agents or automated phases
 
 ## Remember
 
