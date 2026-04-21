@@ -16,7 +16,7 @@ vi.mock("@/lib/supabase-client", () => ({
 vi.mock("@/lib/constants", () => ({
   DEBUG: false,
   EMBEDDING_MODEL: "embed-english-v3.0",
-  RETRIEVAL_K: 10,
+  RETRIEVAL_K: 5,
   SUPABASE_MATCH_DOCUMENTS_FUNCTION: "match_documents",
 }))
 

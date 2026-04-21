@@ -7,8 +7,10 @@ const main = async () => {
     const acc = await accPromise
     const chunks = await retrieveRawChunks(fixture.question)
     const hit = checkHit(chunks, fixture.expectedChunkSubstring)
+    const rank = findRank(chunks, fixture.expectedChunkSubstring)
+    const rankLabel = rank === -1 ? "not found" : `rank ${rank}`
     console.log(
-      `${hit ? "PASS" : `FAIL (expected in: ${fixture.source})`} — ${fixture.question}`
+      `${hit ? "PASS" : `FAIL (expected in: ${fixture.source})`} [${rankLabel}] — ${fixture.question}`
     )
     return acc + (hit ? 1 : 0)
   }, Promise.resolve(0))
@@ -23,6 +25,14 @@ const main = async () => {
     console.log(`\nFAIL: recall below ${RECALL_K_THRESHOLD * 100}% threshold`)
     process.exit(1)
   }
+}
+
+export const findRank = (
+  chunks: DocumentMatch[],
+  substring: string
+): number => {
+  const index = chunks.findIndex(({ content }) => content.includes(substring))
+  return index === -1 ? -1 : index + 1
 }
 
 export const checkHit = (chunks: DocumentMatch[], substring: string) => {

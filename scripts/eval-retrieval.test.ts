@@ -1,5 +1,6 @@
 import { RECALL_K_THRESHOLD } from "@/lib/constants"
-import { checkHit, computeRecall, isPassing } from "./eval-retrieval"
+import type { DocumentMatch } from "@/lib/retrieval"
+import { checkHit, computeRecall, findRank, isPassing } from "./eval-retrieval"
 
 vi.mock("@/lib/supabase-client", () => ({
   supabaseClient: { rpc: vi.fn() },
@@ -75,6 +76,66 @@ describe("eval-retrieval", () => {
 
     test(`returns 'false' when recall is below threshold`, () => {
       expect(isPassing(0.5, RECALL_K_THRESHOLD)).toBe(false)
+    })
+  })
+
+  describe("findRank", () => {
+    const makeChunk = (content: string): DocumentMatch => ({
+      id: 1,
+      content,
+      metadata: { source: "test.md", title: "Test" },
+      similarity: 0.9,
+    })
+
+    test(`returns 1 when the substring matches the first chunk`, () => {
+      const chunks = [
+        makeChunk(
+          "Plate Mail provides the best protection available to fighters."
+        ),
+        makeChunk("Leather Armor is the lightest armor available."),
+        makeChunk("Chain Mail provides moderate protection."),
+      ]
+
+      const result = findRank(chunks, "Plate Mail")
+      expect(result).toBe(1)
+    })
+
+    test(`returns 3 when the substring matches the third chunk`, () => {
+      const chunks = [
+        makeChunk(
+          "Plate Mail provides the best protection available to fighters."
+        ),
+        makeChunk("Leather Armor is the lightest armor available."),
+        makeChunk("Chain Mail provides moderate protection."),
+      ]
+
+      const result = findRank(chunks, "Chain Mail")
+      expect(result).toBe(3)
+    })
+
+    test(`returns -1 when the substring is not found in any chunk`, () => {
+      const chunks = [
+        makeChunk(
+          "Plate Mail provides the best protection available to fighters."
+        ),
+        makeChunk("Leather Armor is the lightest armor available."),
+        makeChunk("Chain Mail provides moderate protection."),
+      ]
+
+      const result = findRank(chunks, "Foo Bar Baz")
+      expect(result).toBe(-1)
+    })
+
+    test(`is case-sensitive (a substring differing only in case returns -1)`, () => {
+      const chunks = [
+        makeChunk(
+          "Plate Mail provides the best protection available to fighters."
+        ),
+        makeChunk("Leather Armor is the lightest armor available."),
+      ]
+
+      const result = findRank(chunks, "plate mail")
+      expect(result).toBe(-1)
     })
   })
 })

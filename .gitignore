@@ -46,3 +46,6 @@ next-env.d.ts
 
 # compiled js files
 lib/*.js
+
+# lightfactory - claude plugin
+.light
