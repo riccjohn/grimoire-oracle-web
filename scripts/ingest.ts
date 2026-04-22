@@ -30,7 +30,8 @@ const runIngestionPipeline = async () => {
   try {
     const docs = loadVaultFiles("./vault/")
     const chunks = splitMarkdownDocs(docs)
-    enrichedChunks = enrichChunksWithMetadata(chunks)
+    const expandedChunks = expandAbbreviations(chunks)
+    enrichedChunks = enrichChunksWithMetadata(expandedChunks)
     loadSpinner.succeed(
       `Loaded ${docs.length} files → ${enrichedChunks.length} chunks`
     )
@@ -91,8 +92,9 @@ export const splitMarkdownDocs = (documents: Document[]) => {
 }
 
 /**
- * Splits a single chunk into fixed-size slices if it exceeds {@link MAX_CHUNK_SIZE}.
- * Slices are cut on character boundaries without regard for word boundaries.
+ * Splits a single chunk into line-aligned slices if it exceeds {@link MAX_CHUNK_SIZE}.
+ * Table-aware: when a split occurs inside a markdown table, the column header row
+ * is prepended to each continuation chunk so that context is preserved.
  *
  * @param source - Original file path, propagated to each slice.
  * @param content - Text content to split.
@@ -101,10 +103,60 @@ export const splitMarkdownDocs = (documents: Document[]) => {
 const splitLargeChunks = (source: string, content: string) => {
   if (content.length <= MAX_CHUNK_SIZE) return [{ source, content }]
 
+  const lines = content.split("\n")
   const slices: Document[] = []
-  for (let i = 0; i < content.length; i += MAX_CHUNK_SIZE) {
-    slices.push({ source, content: content.slice(i, i + MAX_CHUNK_SIZE) })
+  let currentLines: string[] = []
+  let currentLength = 0
+  let activeTableHeader: string | null = null
+
+  const flush = () => {
+    if (currentLines.length > 0) {
+      slices.push({ source, content: currentLines.join("\n") })
+    }
   }
+
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i]
+    const nextLine = lines[i + 1]
+
+    const isNewTableHeader =
+      /^\|.+\|/.test(line) &&
+      nextLine !== undefined &&
+      /^\|[\s:|-]+\|/.test(nextLine)
+
+    if (
+      currentLength + line.length + 1 > MAX_CHUNK_SIZE &&
+      currentLines.length > 0
+    ) {
+      flush()
+      if (activeTableHeader !== null) {
+        currentLines = [activeTableHeader]
+        currentLength = activeTableHeader.length + 1
+      } else {
+        currentLines = []
+        currentLength = 0
+      }
+    }
+
+    if (line.length > MAX_CHUNK_SIZE) {
+      // currentLines is empty here: the flush condition above already fired
+      currentLines = []
+      currentLength = 0
+      for (let j = 0; j < line.length; j += MAX_CHUNK_SIZE) {
+        slices.push({ source, content: line.slice(j, j + MAX_CHUNK_SIZE) })
+      }
+      continue
+    }
+
+    if (isNewTableHeader) {
+      activeTableHeader = line
+    }
+
+    currentLines.push(line)
+    currentLength += line.length + 1
+  }
+
+  flush()
   return slices
 }
 
@@ -139,10 +191,46 @@ const extractTitleFromPath = (filepath: string) => {
   return segments.filter((s) => s !== "rules").join(" > ")
 }
 
+// The Thief skills table uses two-letter abbreviations (CS, TR, …) as column
+// headers. Appending the full names ensures the embedding model can connect
+// natural-language skill queries ("climb sheer surfaces") to the right rows.
+const THIEF_SKILLS_GLOSSARY =
+  "Skill column abbreviations: CS = Climb Sheer Surfaces, TR = Remove Traps, " +
+  "HN = Hear Noise, HS = Hide in Shadows, MS = Move Silently, OL = Open Locks, " +
+  "PP = Pick Pockets"
+
+// All class progression tables use D/W/P/B/S as saving throw column headers.
+// Without expansion, queries like "saving throw vs breath attacks" won't match
+// the B column.
+const SAVING_THROW_GLOSSARY =
+  "Saving throw column abbreviations: D = Death / poison, W = Wands, " +
+  "P = Paralysis / petrify, B = Breath attacks, S = Spells / rods / staves"
+
+/**
+ * Appends abbreviation glossaries to chunks whose tables use non-obvious short-form
+ * column headers. Keeps vault files unmodified — enrichment happens at ingest time.
+ * @param chunks - Chunks produced by splitMarkdownDocs
+ * @returns Same chunks, with glossaries injected where needed
+ */
+export const expandAbbreviations = (chunks: Document[]): Document[] =>
+  chunks.map((chunk) => {
+    let { content } = chunk
+
+    if (chunk.source.endsWith("7. Thief.md") && /\|\s+CS\s+\|/.test(content)) {
+      content = `${content}\n\n${THIEF_SKILLS_GLOSSARY}`
+    }
+
+    if (/\|\s+D\s+\|\s+W\s+\|\s+P\s+\|\s+B\s+\|\s+S\s+\|/.test(content)) {
+      content = `${content}\n\n${SAVING_THROW_GLOSSARY}`
+    }
+
+    return content === chunk.content ? chunk : { ...chunk, content }
+  })
+
 /**
  * Adds document title to chunk metadata to improve retrieval.
  * Helps embedding models match user queries like "Light spell" to relevant chunks.
- * @param chunks - Array of  chunks
+ * @param chunks - Array of chunks
  * @returns Array of chunks with titles added as metadata
  */
 export const enrichChunksWithMetadata = (
