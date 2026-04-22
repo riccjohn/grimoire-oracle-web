@@ -71,5 +71,8 @@ export const isPassing = (recallK: number, recallKThreshold: number) => {
 }
 
 if (import.meta.url === new URL(process.argv[1], import.meta.url).href) {
-  main()
+  main().catch((err) => {
+    console.error(err)
+    process.exit(1)
+  })
 }

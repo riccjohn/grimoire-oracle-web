@@ -94,5 +94,24 @@ describe("retrieval", () => {
       const result = await retrieveContext("test query")
       expect(result).toBe("chunk one\n\nchunk two")
     })
+
+    it("omits title prefix when metadata.title is an empty string", async () => {
+      mockRpc.mockResolvedValue({
+        data: [
+          {
+            id: 1,
+            content: "chunk one",
+            metadata: { source: "a.md", title: "" },
+            similarity: 0.9,
+          },
+        ],
+        error: null,
+        count: null,
+        status: 200,
+        statusText: "OK",
+      })
+      const result = await retrieveContext("test query")
+      expect(result).toBe("chunk one")
+    })
   })
 })

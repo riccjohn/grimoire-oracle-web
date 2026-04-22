@@ -15,7 +15,7 @@ export type DocumentMatch =
 const getTitle = (metadata: DocumentMatch["metadata"]): string | undefined => {
   if (metadata && typeof metadata === "object" && !Array.isArray(metadata)) {
     const title = metadata["title"]
-    return typeof title === "string" ? title : undefined
+    return typeof title === "string" && title.length > 0 ? title : undefined
   }
   return undefined
 }
