@@ -7,6 +7,10 @@
           {
             "type": "command",
             "command": "if echo \"$CLAUDE_TOOL_INPUT\" | grep -qE '\\.(ts|tsx)\"'; then pnpm tsc --noEmit 2>&1 | head -30; fi"
+          },
+          {
+            "type": "command",
+            "command": "if echo \"$CLAUDE_TOOL_INPUT\" | grep -qE '\\.(ts|tsx)\"'; then pnpm lint 2>&1 | head -30; fi"
           }
         ]
       }
