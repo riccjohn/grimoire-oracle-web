@@ -49,3 +49,4 @@ lib/*.js
 
 # lightfactory - claude plugin
 .light
+.yaks

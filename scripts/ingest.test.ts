@@ -5,6 +5,7 @@ import {
   EnrichedChunk,
   embedChunks,
   enrichChunksWithMetadata,
+  expandAbbreviations,
   loadVaultFiles,
   splitMarkdownDocs,
 } from "./ingest"
@@ -245,6 +246,177 @@ describe("splitMarkdownDocs", () => {
   })
 })
 
+describe("splitMarkdownDocs — table-aware splitLargeChunks", () => {
+  /**
+   * Builds a single-table markdown section. Use a rowCount large enough that the
+   * result exceeds MAX_CHUNK_SIZE (1000) to exercise the split path in tests.
+   */
+  const makeTableSection = (
+    sectionHeader: string,
+    tableHeader: string,
+    separatorRow: string,
+    dataRow: string,
+    rowCount: number
+  ): string => {
+    const rows = Array.from({ length: rowCount }, () => dataRow).join("\n")
+    return `${sectionHeader}\n${tableHeader}\n${separatorRow}\n${rows}`
+  }
+
+  it("prepends the column header row to continuation chunks when a table is split", () => {
+    const sectionHeader = "## Weapons Table"
+    const tableHeader = "| Name | Damage | Cost |"
+    const separatorRow = "| :--- | :--- | :--- |"
+    const dataRow = "| Longsword | 1d8 | 10gp |"
+    const content = makeTableSection(
+      sectionHeader,
+      tableHeader,
+      separatorRow,
+      dataRow,
+      50
+    )
+
+    expect(content.length).toBeGreaterThan(1000)
+
+    const docs = [{ source: "vault/equipment.md", content }]
+    const result = splitMarkdownDocs(docs)
+
+    expect(result.length).toBeGreaterThan(1)
+
+    for (const chunk of result.slice(1)) {
+      expect(chunk.content).toMatch(/^\| Name \| Damage \| Cost \|/)
+    }
+  })
+
+  it("does not include the separator row in the prepended header of continuation chunks", () => {
+    const sectionHeader = "## Weapons Table"
+    const tableHeader = "| Name | Damage | Cost |"
+    const separatorRow = "| :--- | :--- | :--- |"
+    const dataRow = "| Longsword | 1d8 | 10gp |"
+    const content = makeTableSection(
+      sectionHeader,
+      tableHeader,
+      separatorRow,
+      dataRow,
+      50
+    )
+
+    const docs = [{ source: "vault/equipment.md", content }]
+    const result = splitMarkdownDocs(docs)
+
+    expect(result.length).toBeGreaterThan(1)
+
+    for (const chunk of result.slice(1)) {
+      const lines = chunk.content.split("\n")
+      // lines[0] is the prepended header; lines[1] should be the first data row, not the separator
+      expect(lines[0]).toBe(tableHeader)
+      expect(lines[1]).not.toBe(separatorRow)
+    }
+  })
+
+  it("prepends each table's own header to its continuation chunks when multiple tables appear in one section", () => {
+    // 55 rows per table → each table ~950 chars, enough to trigger multiple splits per table
+    const header1 = "| Weapon | Damage |"
+    const sep1 = "| :--- | :--- |"
+    const row1 = "| Dagger | 1d4 |"
+    const rows1 = Array.from({ length: 55 }, () => row1).join("\n")
+    const table1 = `${header1}\n${sep1}\n${rows1}`
+
+    const header2 = "| Armor | AC Bonus |"
+    const sep2 = "| :--- | :--- |"
+    const row2 = "| Chain Mail | +4 |"
+    const rows2 = Array.from({ length: 55 }, () => row2).join("\n")
+    const table2 = `${header2}\n${sep2}\n${rows2}`
+
+    const content = `## Equipment\n${table1}\n\n${table2}`
+
+    const docs = [{ source: "vault/equipment.md", content }]
+    const result = splitMarkdownDocs(docs)
+
+    expect(result.length).toBeGreaterThan(2)
+
+    const continuationsWithHeader1 = result
+      .slice(1)
+      .filter((chunk) => chunk.content.startsWith(header1))
+    expect(continuationsWithHeader1.length).toBeGreaterThan(0)
+
+    const continuationsWithHeader2 = result
+      .slice(1)
+      .filter((chunk) => chunk.content.startsWith(header2))
+    expect(continuationsWithHeader2.length).toBeGreaterThan(0)
+  })
+
+  it("does not prepend any header to continuation chunks when splitting prose-only content", () => {
+    const proseLine =
+      "This is a regular prose sentence that contains no pipe characters."
+    const lines = Array.from({ length: 20 }, () => proseLine).join("\n")
+    const content = `## Rules Overview\n${lines}`
+
+    expect(content.length).toBeGreaterThan(1000)
+
+    const docs = [{ source: "vault/rules.md", content }]
+    const result = splitMarkdownDocs(docs)
+
+    expect(result.length).toBeGreaterThan(1)
+
+    for (const chunk of result.slice(1)) {
+      expect(chunk.content).toMatch(new RegExp(`^${proseLine}`))
+    }
+  })
+
+  it("returns a table section unchanged when it fits within MAX_CHUNK_SIZE", () => {
+    const tableHeader = "| Spell | Level | Effect |"
+    const separatorRow = "| :--- | :--- | :--- |"
+    const rows = [
+      "| Fireball | 3 | 8d6 fire |",
+      "| Magic Missile | 1 | 1d4+1 |",
+      "| Sleep | 1 | Puts targets to sleep |",
+    ].join("\n")
+    const content = `## Spells\n${tableHeader}\n${separatorRow}\n${rows}`
+
+    expect(content.length).toBeLessThanOrEqual(1000)
+
+    const docs = [{ source: "vault/spells.md", content }]
+    const result = splitMarkdownDocs(docs)
+
+    expect(result).toHaveLength(1)
+    expect(result[0].content).toBe(content)
+  })
+
+  it("uses the new table header rather than the old one when a second table header triggers a flush", () => {
+    // Arrange: first table fills just under 1000 chars so that header2 is the exact
+    // line that triggers overflow. Without the activeTableHeader update happening before
+    // the seed, the old header1 would be prepended to the new chunk instead of header2.
+    const header1 = "| Item | Weight |"
+    const sep1 = "| :--- | :--- |"
+    const row1 = "| Gold coin | 0.02 |"
+    // 43 rows × 21 chars + "## Treasure\n" (13) + header1 (18) + sep1 (16) ≈ 950 chars
+    const firstTableRows = Array.from({ length: 43 }, () => row1).join("\n")
+    const firstBlock = `## Treasure\n${header1}\n${sep1}\n${firstTableRows}`
+
+    const header2 = "| Magic Item | Rarity |"
+    const sep2 = "| :--- | :--- |"
+    const row2 = "| Wand of Fireballs | Rare |"
+    const secondTableRows = Array.from({ length: 30 }, () => row2).join("\n")
+    const content = `${firstBlock}\n${header2}\n${sep2}\n${secondTableRows}`
+
+    expect(content.length).toBeGreaterThan(1000)
+
+    const docs = [{ source: "vault/treasure.md", content }]
+    const result = splitMarkdownDocs(docs)
+
+    expect(result.length).toBeGreaterThan(1)
+
+    const chunksWithHeader2 = result.filter((chunk) =>
+      chunk.content.startsWith(header2)
+    )
+    expect(chunksWithHeader2.length).toBeGreaterThan(0)
+
+    for (const chunk of chunksWithHeader2) {
+      expect(chunk.content).not.toMatch(/^\| Item \| Weight \|/)
+    }
+  })
+})
+
 describe("enrichChunksWithMetadata", () => {
   it("returns empty array for empty input", () => {
     const result = enrichChunksWithMetadata([])
@@ -421,5 +593,99 @@ describe("embedChunks", () => {
 
     expect(mockEmbedMany).toHaveBeenCalledTimes(2)
     expect(result).toHaveLength(97)
+  })
+})
+
+describe("expandAbbreviations", () => {
+  const THIEF_SOURCE = "vault/2. Classes/7. Thief.md"
+
+  // The Thief skills table header uses two-letter abbreviations as column names.
+  // Chunks containing that header need a glossary appended so the embedding model
+  // can connect "climb sheer surfaces" to "CS" and similar natural-language queries.
+
+  it("appends the skill glossary to a Thief chunk that contains the abbreviated header", () => {
+    const chunk = {
+      source: THIEF_SOURCE,
+      content:
+        "| Level |  CS  |  TR  |  HN  |  HS  |  MS  |  OL  |  PP  |\n|   1   |  87  |  10  | 1–2  |  10  |  20  |  15  |  20  |",
+    }
+
+    const [result] = expandAbbreviations([chunk])
+
+    expect(result.content).toContain("CS = Climb Sheer Surfaces")
+    expect(result.content).toContain("TR = Remove Traps")
+    expect(result.content).toContain("OL = Open Locks")
+  })
+
+  it("does not modify a Thief chunk that does not contain the skills header", () => {
+    const chunk = {
+      source: THIEF_SOURCE,
+      content:
+        "## Back-stab\n\nWhen attacking an unaware opponent from behind, a thief receives a +4 bonus to hit.",
+    }
+
+    const [result] = expandAbbreviations([chunk])
+
+    expect(result.content).toBe(chunk.content)
+  })
+
+  it("does not modify a chunk from a different source even if it contains a CS column", () => {
+    const chunk = {
+      source: "vault/7. Monsters/Goblin.md",
+      content: "| Level |  CS  |  TR  |\n|   1   |  87  |  10  |",
+    }
+
+    const [result] = expandAbbreviations([chunk])
+
+    expect(result.content).toBe(chunk.content)
+  })
+
+  it("returns an empty array for empty input", () => {
+    expect(expandAbbreviations([])).toEqual([])
+  })
+
+  // Class progression tables use D/W/P/B/S as saving throw column headers.
+  // These appear in all 6 class files and won't match queries like "saving throw
+  // vs breath attacks" without the glossary.
+
+  it("appends the saving throw glossary to a class progression chunk", () => {
+    const chunk = {
+      source: "vault/2. Classes/4. Fighter.md",
+      content:
+        "| Level |      XP       |   HD    |  THAC0  |  D   |  W   |  P   |  B   |  S   |\n|   1   |       0       |   1d8   |   19    |  12  |  13  |  14  |  15  |  16  |",
+    }
+
+    const [result] = expandAbbreviations([chunk])
+
+    expect(result.content).toContain("D = Death / poison")
+    expect(result.content).toContain("B = Breath attacks")
+    expect(result.content).toContain("S = Spells / rods / staves")
+  })
+
+  it("does not modify a class chunk that does not contain the saving throw header", () => {
+    const chunk = {
+      source: "vault/2. Classes/4. Fighter.md",
+      content:
+        "## Stronghold\n\nAny time a fighter wishes they can build a stronghold.",
+    }
+
+    const [result] = expandAbbreviations([chunk])
+
+    expect(result.content).toBe(chunk.content)
+  })
+
+  it("appends both glossaries to a chunk that contains both abbreviation patterns", () => {
+    // Edge case: if a chunk somehow contains both the Thief skills header and the
+    // saving throw header, both glossaries should be appended independently
+    const chunk = {
+      source: "vault/2. Classes/7. Thief.md",
+      content:
+        "| Level |  CS  |  TR  |  HN  |  HS  |  MS  |  OL  |  PP  |\n|   1   |  87  |  10  | 1–2  |  10  |  20  |  15  |  20  |\n\n| Level |  THAC0  |  D   |  W   |  P   |  B   |  S   |\n|   1   |   19    |  13  |  14  |  13  |  16  |  15  |",
+    }
+
+    const [result] = expandAbbreviations([chunk])
+
+    expect(result.content).toContain("CS = Climb Sheer Surfaces")
+    expect(result.content).toContain("D = Death / poison")
   })
 })

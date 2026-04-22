@@ -58,5 +58,25 @@
     "question": "What's the cost of plate armor?",
     "expectedChunkSubstring": "Plate mail |  3 [16]  |    60",
     "source": "vault/3. Equipment & Services/3. Weapons and Armor.md"
+  },
+  {
+    "question": "How much damage does a sword do?",
+    "expectedChunkSubstring": "| Sword",
+    "source": "vault/3. Equipment & Services/3. Weapons and Armor.md"
+  },
+  {
+    "question": "How much does a lance cost?",
+    "expectedChunkSubstring": "| Lance",
+    "source": "vault/3. Equipment & Services/3. Weapons and Armor.md"
+  },
+  {
+    "question": "What is the movement rate of a riding horse?",
+    "expectedChunkSubstring": "**MV** 240’ (80’)",
+    "source": "vault/3. Equipment & Services/4. Mounts.md"
+  },
+  {
+    "question": "What % chance does level 7 thief have to climb sheer surfaces?",
+    "expectedChunkSubstring": "|   7   |  93  |",
+    "source": "vault/2. Classes/7. Thief.md"
   }
 ]
